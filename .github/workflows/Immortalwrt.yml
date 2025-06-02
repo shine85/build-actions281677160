@@ -29,6 +29,7 @@ on:
         type: choice
         options:
           - 'T7-2305'
+          - 'Q30'
           - 'x86_64'
           - 'armsr_rootfs_tar_gz'
       INFORMATION_NOTICE:
