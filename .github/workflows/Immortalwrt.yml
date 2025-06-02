@@ -28,7 +28,7 @@ on:
         default: 'x86_64'
         type: choice
         options:
-          -'T7-2305'
+          - 'T7-2305'
           - 'x86_64'
           - 'armsr_rootfs_tar_gz'
       INFORMATION_NOTICE:
