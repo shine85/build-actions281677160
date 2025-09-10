@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [Immortalwrt - 250]
+        target: [Immortalwrt-250]
         
         # 请勿对 target: [Immortalwrt] 做任何修改
         
