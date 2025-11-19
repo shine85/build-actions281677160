@@ -1,6 +1,7 @@
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_abt_asr3000=y
+#CONFIG_TARGET_mediatek_mt7981_DEVICE_mt7981-360-t7-108M=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_jcg_q30-ubootmod=y
 # CONFIG_KERNEL_BTRFS_FS_POSIX_ACL is not set
 # CONFIG_KERNEL_CIFS_ACL is not set
 # CONFIG_KERNEL_EXT4_FS_POSIX_ACL is not set
