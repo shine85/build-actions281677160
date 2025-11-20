@@ -5,7 +5,7 @@
 # 不要一下就拉取别人一个插件包N多插件的，多了没用，增加编译错误，自己需要的才好
 
 echo "src-git advancedplus https://github.com/sirpdboy/luci-app-advancedplus.git;main" >> "feeds.conf.default"
-echo 'src-git kucat https://gitclone.com/github.com/sirpdboy/luci-theme-kucat.git;master' >>feeds.conf.default
+echo "src-git kucat https://gitclone.com/github.com/sirpdboy/luci-theme-kucat.git;master" >>"feeds.conf.default"
 
 
 # 后台IP设置

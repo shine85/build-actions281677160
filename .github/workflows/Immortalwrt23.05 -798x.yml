@@ -9,7 +9,7 @@
 #
 #
 
-name: Immortalwrt-天灵-798X
+name: Immortalwrt23.05-天灵-798X
 on:
   workflow_dispatch:
     inputs:
