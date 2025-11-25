@@ -6,7 +6,7 @@
 
 # git clone https://github.com/sirpdboy/luci-app-advancedplus package/luci-app-advancedplus
 git clone https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
-
+git clone https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
 
 # 后台IP设置
 export Ipv4_ipaddr="192.168.6.2"            # 修改openwrt后台地址(填0为关闭)
