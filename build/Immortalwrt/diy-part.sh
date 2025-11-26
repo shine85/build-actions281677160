@@ -5,7 +5,7 @@
 # 不要一下就拉取别人一个插件包N多插件的，多了没用，增加编译错误，自己需要的才好
 
 
-#git clone https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
+git clone https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
 git clone https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
 
 
