@@ -6,7 +6,10 @@
 
 
 git clone https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
+
 git clone https://github.com/sirpdboy/luci-app-kucat-config package/luci-theme-kucat-config
+
+git clone https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
 
 
 # 后台IP设置
