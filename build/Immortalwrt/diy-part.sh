@@ -8,7 +8,7 @@
 #git clone https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
 #git clone https://github.com/sirpdboy/luci-app-kucat-config package/luci-theme-kucat-config
 echo 'src-git luci-theme-kucat-config https://github.com/sirpdboy/luci-app-kucat-config' >>feeds.conf.default
-echo 'src-git luci-theme-kucat https://github.com/sirpdboy/luci-theme-kucat' >>feeds.conf.default
+# echo 'src-git luci-theme-kucat https://github.com/sirpdboy/luci-theme-kucat' >>feeds.conf.default
 
 
 
