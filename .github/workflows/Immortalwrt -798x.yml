@@ -9,37 +9,31 @@
 #
 #
 
-name: Mt798x-mtk闭源
+name: Immortalwrt-天灵-798x
 on:
   workflow_dispatch:
     inputs:
       REPO_BRANCH:
-        description: 'mt798x源码-请选择分支'
+        description: '天灵源码-请选择分支'
         required: true
-        default: '2410'
+        default: 'openwrt-23.05'
         type: choice
         options:
-          - '2410'
+          - 'openwrt-24.10'
           - 'openwrt-23.05'
-          - 'hanwckf-21.02'
+          - 'master'
       CONFIG_FILE:
         description: '请选择[seed文件夹内]的配置文件'
         required: true
-        default: 'jcg-q30'
+        default: 'Q30pro'
         type: choice
         options:
-          - '360-t7-108M'
-          - 'clt-r30b1-112M'
-          - 'cudy_tr3000-v1'
-          - 'cmcc-rax3000m-emmc'
-          - 'cmcc_rax3000me'
-          - 'glinet-gl-xe3000'
-          - 'huasifei-wh3000-emmc'
-          - 'jcg-q30'
+          - 'Q30pro'
+          - '360t7'
       INFORMATION_NOTICE:
         description: 'Telegram或pushplus信息通知'
         required: true
-        default: 'Telegram'
+        default: '关闭'
         type: choice
         options:
           - '关闭'
@@ -48,7 +42,7 @@ on:
       KEEP_WORKFLOWS:
         description: '清理workflows,保留[X]个runs不被清理'
         required: true
-        default: '50'
+        default: '30'
       KEEP_RELEASES:
         description: '清理Releases,保留[X]个Releases不被清理'
         required: true
@@ -82,8 +76,9 @@ on:
 
 # 如若启动定时编译的话,配置文件是设置对应文件夹内的settings.ini文件
 # 定时触发开启开始编译(把下面两个#去掉开启,时间设置请看定时开启编译说明)
+# #每个星期5，22点00执行；北京时间次日6点20
 #  schedule:
-#   - cron: 00 22 * * 6
+#   - cron: 00 22 * * 5
 
 env:
   GIT_REPOSITORY: ${{github.repository}}
@@ -104,9 +99,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [Mt798x]
+        target: [Immortalwrt-250]
         
-        # 请勿对 target: [Mt798x] 做任何修改
+        # 请勿对 target: [Immortalwrt] 做任何修改
         
     steps:
     - name: 准备结束
