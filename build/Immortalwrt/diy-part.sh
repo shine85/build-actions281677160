@@ -112,4 +112,9 @@ echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
 echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
 
-make defconfig
+# feeds 装完才 defconfig，避免“依赖不存在”的假警告
+if [ -d "package/feeds/luci" ] || [ -d "feeds/luci" ]; then
+  make defconfig
+else
+  echo "feeds not installed yet, skip make defconfig here."
+fi
