@@ -100,11 +100,16 @@ cat >>$DELETE <<-EOF
 EOF
 
 
-# --- 修复 Kucat 配置插件不显示的问题 ---
-# 强制开启依赖库 (这是最关键的一步！)
+# --- 修复 Kucat 配置插件不显示/不进固件的问题 ---
+# 关键点：
+# 1) 必须在 OpenWrt 根目录执行，否则 .config 写错位置
+# 2) 写入后必须 make defconfig，让依赖/可见性真正生效
+[ -f "./rules.mk" ] || { echo "Not in OpenWrt root dir (rules.mk not found)"; exit 1; }
+[ -f ".config" ] || touch .config
+
 echo "CONFIG_PACKAGE_luci-compat=y" >> .config
 echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
-
-# 再次确认 Kucat 组件被选中
 echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
+
+make defconfig
