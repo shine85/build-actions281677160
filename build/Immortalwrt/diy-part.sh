@@ -101,21 +101,16 @@ cat >>$DELETE <<-EOF
 EOF
 
 
-# --- 修复 Kucat 配置插件不显示/不进固件的问题 ---
-# 关键点：
-# 1) 必须在 OpenWrt 根目录执行，否则 .config 写错位置
-# 2) 写入后必须 make defconfig，让依赖/可见性真正生效
-[ -f "./rules.mk" ] || { echo "Not in OpenWrt root dir (rules.mk not found)"; exit 1; }
-[ -f ".config" ] || touch .config
+#========================
+# 2) 关键：把 Kucat 配置写进 seed（优先 MYCONFIG_FILE），避免 defconfig 清洗掉
+#========================
+CFG_DST="${MYCONFIG_FILE:-.config}"
+[ -f "$CFG_DST" ] || touch "$CFG_DST"
 
-echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
-echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
+# 去重写入（避免多次执行重复追加）
+grep -q '^CONFIG_PACKAGE_luci-compat=y' "$CFG_DST"        || echo 'CONFIG_PACKAGE_luci-compat=y' >> "$CFG_DST"
+grep -q '^CONFIG_PACKAGE_luci-lib-ipkg=y' "$CFG_DST"      || echo 'CONFIG_PACKAGE_luci-lib-ipkg=y' >> "$CFG_DST"
+grep -q '^CONFIG_PACKAGE_luci-theme-kucat=y' "$CFG_DST"   || echo 'CONFIG_PACKAGE_luci-theme-kucat=y' >> "$CFG_DST"
+grep -q '^CONFIG_PACKAGE_luci-app-kucat-config=y' "$CFG_DST" || echo 'CONFIG_PACKAGE_luci-app-kucat-config=y' >> "$CFG_DST"
 
-# feeds 装完才 defconfig，避免“依赖不存在”的假警告
-if [ -d "package/feeds/luci" ] || [ -d "feeds/luci" ]; then
-  make defconfig
-else
-  echo "feeds not installed yet, skip make defconfig here."
-fi
+echo "Kucat seed config written to: $CFG_DST"
