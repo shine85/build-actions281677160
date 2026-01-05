@@ -98,3 +98,11 @@ EOF
 # 在线更新时，删除不想保留固件的某个文件，在EOF跟EOF之间加入删除代码，记住这里对应的是固件的文件路径，比如： rm -rf /etc/config/luci
 cat >>$DELETE <<-EOF
 EOF
+# --- 修复 Kucat 配置插件不显示的问题 ---
+# 强制开启依赖库 (这是最关键的一步！)
+echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
+
+# 再次确认 Kucat 组件被选中
+echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
+echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
