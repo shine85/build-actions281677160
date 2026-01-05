@@ -7,8 +7,6 @@
 #主题
 git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
 git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
-# echo 'src-git kucat https://github.com/sirpdboy/luci-theme-kucat' >>feeds.conf.default
-# echo 'src-git luci-app-kucat-config https://github.com/sirpdboy/luci-app-kucat-config' >>feeds.conf.default
 
 
 # 后台IP设置
