@@ -5,8 +5,9 @@
 # 不要一下就拉取别人一个插件包N多插件的，多了没用，增加编译错误，自己需要的才好
 
 #主题
-git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
-git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
+git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat || true
+git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config || true
+
 
 
 # 后台IP设置
