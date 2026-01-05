@@ -102,9 +102,9 @@ EOF
 
 # --- 修复 Kucat 配置插件不显示的问题 ---
 # 强制开启依赖库 (这是最关键的一步！)
-echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
+# echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+# echo "CONFIG_PACKAGE_luci-lib-ipkg=y" >> .config
 
 # 再次确认 Kucat 组件被选中
-echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
-echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
+# echo "CONFIG_PACKAGE_luci-theme-kucat=y" >> .config
+# echo "CONFIG_PACKAGE_luci-app-kucat-config=y" >> .config
