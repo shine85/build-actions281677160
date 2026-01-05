@@ -102,7 +102,7 @@ EOF
 
 
 #========================
-# 2) 关键：把 Kucat 配置写进 seed（优先 MYCONFIG_FILE），避免 defconfig 清洗掉
+# 把 Kucat 配置写进 seed（优先 MYCONFIG_FILE），避免 defconfig 清洗掉
 #========================
 CFG_DST="${MYCONFIG_FILE:-.config}"
 [ -f "$CFG_DST" ] || touch "$CFG_DST"
