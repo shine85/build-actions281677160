@@ -8,6 +8,18 @@
 git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat || true
 git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config || true
 
+# 确保 kucat 插件被 feeds 系统正确识别
+if [ -d "package/luci-theme-kucat" ]; then
+    echo "✅ luci-theme-kucat 已克隆"
+fi
+
+if [ -d "package/luci-app-kucat-config" ]; then
+    echo "✅ luci-app-kucat-config 已克隆"
+    # 添加到 feeds 系统,确保被正确索引
+    echo "src-link kucat_config $(pwd)/package/luci-app-kucat-config" >> feeds.conf.default
+    echo "📝 已将 luci-app-kucat-config 添加到 feeds.conf.default"
+fi
+
 
 
 # 后台IP设置
