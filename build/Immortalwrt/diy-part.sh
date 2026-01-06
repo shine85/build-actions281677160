@@ -4,7 +4,12 @@
 # 自行拉取插件之前请SSH连接进入固件配置里面确认过没有你要的插件再单独拉取你需要的插件
 # 不要一下就拉取别人一个插件包N多插件的，多了没用，增加编译错误，自己需要的才好
 
-#主题
+set -e
+
+# =========================================================
+# 主题（先清理再拉取，避免缓存/重复运行导致目录已存在）
+# =========================================================
+rm -rf package/luci-theme-kucat package/luci-app-kucat-config || true
 git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
 git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
 
@@ -120,27 +125,42 @@ EOF
 # 在线更新时，删除不想保留固件的某个文件，在EOF跟EOF之间加入删除代码，记住这里对应的是固件的文件路径，比如： rm -rf /etc/config/luci
 cat >>$DELETE <<-EOF
 EOF
+
+
 # =========================================================
-# 🔍 构建前强制校验 Kucat 配置是否真正进入最终配置
-# 只要缺失，直接让 Actions 失败
+# 🔍 构建前强制校验：包 + 最终配置都必须存在，否则 Actions 直接失败
 # =========================================================
-if [ -n "$CONFIG_TXT" ] && [ -f "$CONFIG_TXT" ]; then
-  echo ">>> 校验 CONFIG_TXT 中的 Kucat 配置..."
+echo ">>> 校验 Kucat 包目录..."
+[ -f "package/luci-app-kucat-config/Makefile" ] || {
+  echo
+  echo "❌ ERROR: package/luci-app-kucat-config/Makefile 不存在（clone 失败或路径不对）"
+  exit 1
+}
+[ -f "package/luci-theme-kucat/Makefile" ] || {
+  echo
+  echo "❌ ERROR: package/luci-theme-kucat/Makefile 不存在（clone 失败或路径不对）"
+  exit 1
+}
+
+if [ -n "$CONFIG_TXT" ]; then
+  [ -f "$CONFIG_TXT" ] || touch "$CONFIG_TXT"
+
+  echo ">>> 校验 CONFIG_TXT: $CONFIG_TXT"
+  echo "---- CONFIG_TXT 关键行预览 ----"
+  grep -E "^CONFIG_PACKAGE_luci-(theme-kucat|app-kucat-config)=y$" "$CONFIG_TXT" || true
+  echo "--------------------------------"
 
   grep -q "^CONFIG_PACKAGE_luci-app-kucat-config=y$" "$CONFIG_TXT" || {
     echo
-    echo "❌ ERROR: luci-app-kucat-config 未进入最终配置！"
-    echo "❌ 请检查 diy-part.sh / clone / 依赖"
-    echo
+    echo "❌ ERROR: luci-app-kucat-config 未进入最终配置（CONFIG_TXT）！"
     exit 1
   }
 
   grep -q "^CONFIG_PACKAGE_luci-theme-kucat=y$" "$CONFIG_TXT" || {
     echo
-    echo "❌ ERROR: luci-theme-kucat 未进入最终配置！"
-    echo
+    echo "❌ ERROR: luci-theme-kucat 未进入最终配置（CONFIG_TXT）！"
     exit 1
   }
 
-  echo "✅ Kucat 主题 + 配置插件已确认进入最终配置"
+  echo "✅ Kucat 主题 + 配置插件：已确认写入最终配置 CONFIG_TXT"
 fi
