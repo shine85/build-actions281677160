@@ -120,3 +120,27 @@ EOF
 # 在线更新时，删除不想保留固件的某个文件，在EOF跟EOF之间加入删除代码，记住这里对应的是固件的文件路径，比如： rm -rf /etc/config/luci
 cat >>$DELETE <<-EOF
 EOF
+# =========================================================
+# 🔍 构建前强制校验 Kucat 配置是否真正进入最终配置
+# 只要缺失，直接让 Actions 失败
+# =========================================================
+if [ -n "$CONFIG_TXT" ] && [ -f "$CONFIG_TXT" ]; then
+  echo ">>> 校验 CONFIG_TXT 中的 Kucat 配置..."
+
+  grep -q "^CONFIG_PACKAGE_luci-app-kucat-config=y$" "$CONFIG_TXT" || {
+    echo
+    echo "❌ ERROR: luci-app-kucat-config 未进入最终配置！"
+    echo "❌ 请检查 diy-part.sh / clone / 依赖"
+    echo
+    exit 1
+  }
+
+  grep -q "^CONFIG_PACKAGE_luci-theme-kucat=y$" "$CONFIG_TXT" || {
+    echo
+    echo "❌ ERROR: luci-theme-kucat 未进入最终配置！"
+    echo
+    exit 1
+  }
+
+  echo "✅ Kucat 主题 + 配置插件已确认进入最终配置"
+fi
