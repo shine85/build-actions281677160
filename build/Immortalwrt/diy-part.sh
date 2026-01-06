@@ -101,16 +101,26 @@ cat >>$DELETE <<-EOF
 EOF
 
 
-#========================
-# 把 Kucat 配置写进 seed（优先 MYCONFIG_FILE），避免 defconfig 清洗掉
-#========================
-CFG_DST="${MYCONFIG_FILE:-.config}"
-[ -f "$CFG_DST" ] || touch "$CFG_DST"
+# ========================
+# 强制把 Kucat 配置写入 seed（这是 common.sh 真正读取的源）
+# ========================
 
-# 去重写入（避免多次执行重复追加）
-grep -q '^CONFIG_PACKAGE_luci-compat=y' "$CFG_DST"        || echo 'CONFIG_PACKAGE_luci-compat=y' >> "$CFG_DST"
-grep -q '^CONFIG_PACKAGE_luci-lib-ipkg=y' "$CFG_DST"      || echo 'CONFIG_PACKAGE_luci-lib-ipkg=y' >> "$CFG_DST"
-grep -q '^CONFIG_PACKAGE_luci-theme-kucat=y' "$CFG_DST"   || echo 'CONFIG_PACKAGE_luci-theme-kucat=y' >> "$CFG_DST"
-grep -q '^CONFIG_PACKAGE_luci-app-kucat-config=y' "$CFG_DST" || echo 'CONFIG_PACKAGE_luci-app-kucat-config=y' >> "$CFG_DST"
+SEED_CFG="${MYCONFIG_FILE}"
 
-echo "Kucat seed config written to: $CFG_DST"
+[ -f "$SEED_CFG" ] || touch "$SEED_CFG"
+
+# 去重写入
+grep -q '^CONFIG_PACKAGE_luci-compat=y' "$SEED_CFG" \
+  || echo 'CONFIG_PACKAGE_luci-compat=y' >> "$SEED_CFG"
+
+grep -q '^CONFIG_PACKAGE_luci-lib-ipkg=y' "$SEED_CFG" \
+  || echo 'CONFIG_PACKAGE_luci-lib-ipkg=y' >> "$SEED_CFG"
+
+grep -q '^CONFIG_PACKAGE_luci-theme-kucat=y' "$SEED_CFG" \
+  || echo 'CONFIG_PACKAGE_luci-theme-kucat=y' >> "$SEED_CFG"
+
+grep -q '^CONFIG_PACKAGE_luci-app-kucat-config=y' "$SEED_CFG" \
+  || echo 'CONFIG_PACKAGE_luci-app-kucat-config=y' >> "$SEED_CFG"
+
+echo "✅ Kucat config injected into seed:"
+tail -n 5 "$SEED_CFG"
