@@ -4,76 +4,82 @@
 # 自行拉取插件之前请SSH连接进入固件配置里面确认过没有你要的插件再单独拉取你需要的插件
 # 不要一下就拉取别人一个插件包N多插件的，多了没用，增加编译错误，自己需要的才好
 
-#主题
-git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat || true
-git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config || true
+set -e
 
-# 确保 kucat 插件被 feeds 系统正确识别
-if [ -d "package/luci-theme-kucat" ]; then
-    echo "✅ luci-theme-kucat 已克隆"
+# ======================
+# 主题（Kucat）
+# ======================
+rm -rf package/luci-theme-kucat package/luci-app-kucat-config
+
+git clone --depth 1 https://github.com/sirpdboy/luci-theme-kucat package/luci-theme-kucat
+git clone --depth 1 https://github.com/sirpdboy/luci-app-kucat-config package/luci-app-kucat-config
+
+# ImmortalWrt 24.10 下：luci-app-kucat-config 的 Makefile 里有 host/build 依赖，会导致 defconfig 直接清洗掉该包
+# 这里直接删除这些依赖，让 Kconfig 变成“可选”，从而能进最终 .config 与固件
+KUCAT_MK="package/luci-app-kucat-config/Makefile"
+if [ -f "$KUCAT_MK" ]; then
+  echo ">>> Patch luci-app-kucat-config Makefile for ImmortalWrt 24.10"
+  sed -i \
+    -e '/luci-base\/host/d' \
+    -e '/csstidy\/host/d' \
+    -e '/luasrcdiet\/host/d' \
+    -e '/+curl/d' \
+    "$KUCAT_MK"
 fi
 
-if [ -d "package/luci-app-kucat-config" ]; then
-    echo "✅ luci-app-kucat-config 已克隆"
-    # 添加到 feeds 系统,确保被正确索引
-    echo "src-link kucat_config $(pwd)/package/luci-app-kucat-config" >> feeds.conf.default
-    echo "📝 已将 luci-app-kucat-config 添加到 feeds.conf.default"
-fi
-
-
-
+# ======================
 # 后台IP设置
+# ======================
 export Ipv4_ipaddr="192.168.6.2"            # 修改openwrt后台地址(填0为关闭)
 export Netmask_netm="255.255.255.0"         # IPv4 子网掩码（默认：255.255.255.0）(填0为不作修改)
-export Op_name="OP-Shine"                # 修改主机名称为OpenWrt-123(填0为不作修改)
+export Op_name="OP-Shine"                   # 修改主机名称(填0为不作修改)
 
 # 内核和系统分区大小(不是每个机型都可用)
-export Kernel_partition_size="0"            # 内核分区大小,每个机型默认值不一样 (填写您想要的数值,默认一般16,数值以MB计算，填0为不作修改),如果你不懂就填0
-export Rootfs_partition_size="0"            # 系统分区大小,每个机型默认值不一样 (填写您想要的数值,默认一般300左右,数值以MB计算，填0为不作修改),如果你不懂就填0
+export Kernel_partition_size="0"            # 内核分区大小(填0为不作修改)
+export Rootfs_partition_size="0"            # 系统分区大小(填0为不作修改)
 
 # 默认主题设置
-export Mandatory_theme="argon"              # 将bootstrap替换您需要的主题为必选主题(可自行更改您要的,源码要带此主题就行,填写名称也要写对) (填写主题名称,填0为不作修改)
-export Default_theme="kucat"                # 多主题时,选择某主题为默认第一主题 (填写主题名称,填0为不作修改) kucat argon
+export Mandatory_theme="argon"              # bootstrap替换为必选主题(填0为不作修改)
+export Default_theme="kucat"                # 多主题时默认第一主题(填0为不作修改)
 
 # 旁路由选项
-export Gateway_Settings="192.168.6.1"                 # 旁路由设置 IPv4 网关(填入您的网关IP为启用)(填0为不作修改)
-export DNS_Settings="223.5.5.5"                     # 旁路由设置 DNS(填入DNS，多个DNS要用空格分开)(填0为不作修改)
-export Broadcast_Ipv4="0"                   # 设置 IPv4 广播(填入您的IP为启用)(填0为不作修改)
-export Disable_DHCP="1"                     # 旁路由关闭DHCP功能(1为启用命令,填0为不作修改)
-export Disable_Bridge="1"                   # 旁路由去掉桥接模式(1为启用命令,填0为不作修改)
-export Create_Ipv6_Lan="1"                  # 爱快+OP双系统时,爱快接管IPV6,在OP创建IPV6的lan口接收IPV6信息(1为启用命令,填0为不作修改)
+export Gateway_Settings="192.168.6.1"       # 旁路由网关(填0为不作修改)
+export DNS_Settings="223.5.5.5"             # 旁路由DNS(填0为不作修改)
+export Broadcast_Ipv4="0"                   # IPv4广播(填0为不作修改)
+export Disable_DHCP="1"                     # 旁路由关闭DHCP(填0为不作修改)
+export Disable_Bridge="1"                   # 去掉桥接模式(填0为不作修改)
+export Create_Ipv6_Lan="1"                  # 创建IPv6 LAN(填0为不作修改)
 
 # IPV6、IPV4 选择
-export Enable_IPV6_function="0"             # 编译IPV6固件(1为启用命令,填0为不作修改)(如果跟Create_Ipv6_Lan一起启用命令的话,Create_Ipv6_Lan命令会自动关闭)
-export Enable_IPV4_function="0"             # 编译IPV4固件(1为启用命令,填0为不作修改)(如果跟Enable_IPV6_function一起启用命令的话,此命令会自动关闭)
+export Enable_IPV6_function="0"
+export Enable_IPV4_function="0"
 
-# 替换OpenClash的源码(默认master分支)
-export OpenClash_branch="0"                 # OpenClash的源码分别有【master分支】和【dev分支】(填0为关闭,填1为使用master分支,填2为使用dev分支,填入1或2的时候固件自动增加此插件)
+# 替换OpenClash源码
+export OpenClash_branch="0"
 
-# 个性签名,默认增加年月日[$(TZ=UTC-8 date "+%Y.%m.%d")]
-export Customized_Information="༄Shine 🔸࿐ 编译于$(TZ=UTC-8 date "+%Y.%m.%d")"  # 个性签名,你想写啥就写啥，(填0为不作修改)
+# 个性签名
+export Customized_Information="༄Shine 🔸࿐ 编译于$(TZ=UTC-8 date "+%Y.%m.%d")"
 
 # 更换固件内核
-export Replace_Kernel="0"                    # 更换内核版本,在对应源码的[target/linux/架构]查看patches-x.x,看看x.x有啥就有啥内核了(填入内核x.x版本号,填0为不作修改)
+export Replace_Kernel="0"
 
-# 设置免密码登录(个别源码本身就没密码的)
-export Password_free_login="1"               # 设置首次登录后台密码为空（进入openwrt后自行修改密码）(1为启用命令,填0为不作修改)
+# 设置免密码登录
+export Password_free_login="1"
 
 # 增加AdGuardHome插件和核心
-export AdGuardHome_Core="0"                  # 编译固件时自动增加AdGuardHome插件和AdGuardHome插件核心,需要注意的是一个核心20多MB的,小闪存机子搞不来(1为启用命令,填0为不作修改)
+export AdGuardHome_Core="0"
 
 # 开启NTFS格式盘挂载
-export Automatic_Mount_Settings="0"          # 编译时加入开启NTFS格式盘挂载的所需依赖(1为启用命令,填0为不作修改)
+export Automatic_Mount_Settings="0"
 
 # 去除网络共享(autosamba)
-export Disable_autosamba="1"                 # 去掉源码默认自选的luci-app-samba或luci-app-samba4(1为启用命令,填0为不作修改)
+export Disable_autosamba="1"
 
 # 其他
-export Ttyd_account_free_login="1"           # 设置ttyd免密登录(1为启用命令,填0为不作修改)
-export Delete_unnecessary_items="0"          # 个别机型内一堆其他机型固件,删除其他机型的,只保留当前主机型固件(1为启用命令,填0为不作修改)
-export Disable_53_redirection="0"            # 删除DNS强制重定向53端口防火墙规则(个别源码本身不带此功能)(1为启用命令,填0为不作修改)
-export Cancel_running="0"                    # 取消路由器每天跑分任务(个别源码本身不带此功能)(1为启用命令,填0为不作修改)
-
+export Ttyd_account_free_login="1"
+export Delete_unnecessary_items="0"
+export Disable_53_redirection="0"
+export Cancel_running="0"
 
 # 晶晨CPU系列打包固件设置(不懂请看说明)
 export amlogic_model="s905d"
@@ -82,8 +88,9 @@ export auto_kernel="true"
 export rootfs_size="512/2560"
 export kernel_usage="stable"
 
-
+# ======================
 # 修改插件名字
+# ======================
 grep -rl '"终端"' . | xargs -r sed -i 's?"终端"?"TTYD"?g'
 grep -rl '"TTYD 终端"' . | xargs -r sed -i 's?"TTYD 终端"?"TTYD"?g'
 grep -rl '"网络存储"' . | xargs -r sed -i 's?"网络存储"?"NAS"?g'
@@ -94,8 +101,9 @@ grep -rl '"Web 管理"' . | xargs -r sed -i 's?"Web 管理"?"Web管理"?g'
 grep -rl '"管理权"' . | xargs -r sed -i 's?"管理权"?"改密码"?g'
 grep -rl '"带宽监控"' . | xargs -r sed -i 's?"带宽监控"?"监控"?g'
 
-
-# 整理固件包时候,删除您不想要的固件或者文件,让它不需要上传到Actions空间(根据编译机型变化,自行调整删除名称)
+# ======================
+# 整理固件包时删除不需要上传的文件
+# ======================
 cat >"$CLEAR_PATH" <<-EOF
 packages
 config.buildinfo
@@ -108,31 +116,29 @@ openwrt-x86-64-generic.manifest
 openwrt-x86-64-generic-squashfs-rootfs.img.gz
 EOF
 
-# 在线更新时，删除不想保留固件的某个文件，在EOF跟EOF之间加入删除代码，记住这里对应的是固件的文件路径，比如： rm -rf /etc/config/luci
-cat >>$DELETE <<-EOF
+# 在线更新时删除不想保留的文件
+cat >>"$DELETE" <<-EOF
 EOF
 
+# ======================
+# 关键：写入 seed（不是写 .config）
+# ======================
+_seed="${MYCONFIG_FILE:-}"
+if [ -z "${_seed}" ]; then
+  _seed="x86_64"
+fi
+mkdir -p "$(dirname "${_seed}")" 2>/dev/null || true
+touch "${_seed}" 2>/dev/null || true
 
-# ========================
-# 强制把 Kucat 配置写入 seed（这是 common.sh 真正读取的源）
-# ========================
+_append_cfg() {
+  local line="$1"
+  grep -qxF "${line}" "${_seed}" 2>/dev/null || echo "${line}" >> "${_seed}"
+}
 
-SEED_CFG="${MYCONFIG_FILE}"
+# 依赖 + 主题 + 配置插件（确保最终 .config 能保留下来）
+_append_cfg "CONFIG_PACKAGE_luci-compat=y"
+_append_cfg "CONFIG_PACKAGE_luci-lib-ipkg=y"
+_append_cfg "CONFIG_PACKAGE_luci-theme-kucat=y"
+_append_cfg "CONFIG_PACKAGE_luci-app-kucat-config=y"
 
-[ -f "$SEED_CFG" ] || touch "$SEED_CFG"
-
-# 去重写入
-grep -q '^CONFIG_PACKAGE_luci-compat=y' "$SEED_CFG" \
-  || echo 'CONFIG_PACKAGE_luci-compat=y' >> "$SEED_CFG"
-
-grep -q '^CONFIG_PACKAGE_luci-lib-ipkg=y' "$SEED_CFG" \
-  || echo 'CONFIG_PACKAGE_luci-lib-ipkg=y' >> "$SEED_CFG"
-
-grep -q '^CONFIG_PACKAGE_luci-theme-kucat=y' "$SEED_CFG" \
-  || echo 'CONFIG_PACKAGE_luci-theme-kucat=y' >> "$SEED_CFG"
-
-grep -q '^CONFIG_PACKAGE_luci-app-kucat-config=y' "$SEED_CFG" \
-  || echo 'CONFIG_PACKAGE_luci-app-kucat-config=y' >> "$SEED_CFG"
-
-echo "✅ Kucat config injected into seed:"
-tail -n 5 "$SEED_CFG"
+echo "Kucat seed config written to: ${_seed}"
