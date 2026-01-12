@@ -16,8 +16,8 @@ export Kernel_partition_size="0"            # 内核分区大小,每个机型默
 export Rootfs_partition_size="0"            # 系统分区大小,每个机型默认值不一样 (填写您想要的数值,默认一般300左右,数值以MB计算，填0为不作修改),如果你不懂就填0
 
 # 默认主题设置
-export Mandatory_theme="argon"              # 将bootstrap替换您需要的主题为必选主题(可自行更改您要的,源码要带此主题就行,填写名称也要写对) (填写主题名称,填0为不作修改)
-export Default_theme="KuCat"                # 多主题时,选择某主题为默认第一主题 (填写主题名称,填0为不作修改)
+export Mandatory_theme="KuCat"              # 将bootstrap替换您需要的主题为必选主题(可自行更改您要的,源码要带此主题就行,填写名称也要写对) (填写主题名称,填0为不作修改)
+export Default_theme="argon"                # 多主题时,选择某主题为默认第一主题 (填写主题名称,填0为不作修改)
 
 # 旁路由选项
 export Gateway_Settings="192.168.6.1"                 # 旁路由设置 IPv4 网关(填入您的网关IP为启用)(填0为不作修改)
@@ -75,7 +75,7 @@ grep -rl '"实时流量监测"' . | xargs -r sed -i 's?"实时流量监测"?"流
 grep -rl '"KMS 服务器"' . | xargs -r sed -i 's?"KMS 服务器"?"KMS激活"?g'
 grep -rl '"USB 打印服务器"' . | xargs -r sed -i 's?"USB 打印服务器"?"打印服务"?g'
 grep -rl '"Web 管理"' . | xargs -r sed -i 's?"Web 管理"?"Web管理"?g'
-grep -rl '"管理权"' . | xargs -r sed -i 's?"管理权"?"改密码"?g'
+grep -rl '"管理权"' . | xargs -r sed -i 's?"管理权"?"更改密码"?g'
 grep -rl '"带宽监控"' . | xargs -r sed -i 's?"带宽监控"?"监控"?g'
 
 
