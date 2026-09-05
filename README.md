@@ -1,3 +1,7 @@
+> **本仓库是 [281677160/build-actions](https://github.com/281677160/build-actions) 的定制分支。**
+> 定制了什么、为什么这么改、以及同步上游后如何把改动补回来，全部记在 **[README-Shine.md](README-Shine.md)**。
+> 以下是上游原版说明。
+
 
 <details>
 <summary>⬆️更新说明（2025年5月30号）</summary>
