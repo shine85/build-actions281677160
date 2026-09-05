@@ -76,26 +76,89 @@
 
 `build/Immortalwrt/relevance/` 下的 `settings.ini` 和 `start` 是 CI 自动生成的，不用管。
 
-## 五、同步上游代码的步骤
+## 五、同步上游代码：会不会覆盖我的改动
 
-本仓库当前是「上游 + 本地提交」，分叉点就是上游最新提交，直接 merge 即可。
+**不会盲目覆盖。** `git merge upstream/main` 是三方合并，只有三种结果：
+
+| 情况 | 结果 |
+|---|---|
+| 上游改了、我没改 | 自动采用上游新版 |
+| 我改了、上游没改 | 保留我的，不动 |
+| 同一个文件同一处两边都改了 | **冲突**，git 停下来等你处理 |
+
+所以自定义内容不会被静默丢掉，要动手的只有冲突的那几个文件。
+
+### 冲突文件分两类处理
+
+**第一类：纯自己的配置** —— `build/Immortalwrt/` 下的 `diy-part.sh`、`diy-part-250.sh`、`seed/*`、`settings.ini`。
+上游那边只是模板，这边是实际配置，直接保留自己的：
+
+```bash
+git checkout --ours build/Immortalwrt/diy-part.sh
+git add build/Immortalwrt/diy-part.sh
+```
+
+保留后瞄一眼上游有没有加**新变量**，有就手工补进自己的脚本，别整段照抄：
+
+```bash
+MSYS_NO_PATHCONV=1 git show "upstream/main:build/Immortalwrt/diy-part.sh" | grep '^export'
+```
+
+**第二类：上游代码 + 我插入的步骤** —— `Immortalwrt.yml`、`compile.yml`。
+这类**必须以上游新版为底**再把步骤插回去，不能拿旧版整文件覆盖，否则上游的修复就丢了：
+
+```bash
+git checkout --theirs .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
+bash tools/apply-custom-steps.sh
+git add .github/workflows/
+```
+
+`Immortalwrt -250.yml` 是本仓库独有的文件，上游没有，**永远不会冲突**。
+
+### 用 `git checkout --theirs` 之后，这几项个人设置要手工改回来
+
+脚本只补步骤，不管下面这些偏好值。`Immortalwrt.yml` 里被上游版本盖掉的是：
+
+| 位置 | 上游值 | 要改成 |
+|---|---|---|
+| `INFORMATION_NOTICE` 的 `default` | `'关闭'` | `'Telegram'` |
+| 清理 workflows 保留数的 `default` | `'50'` | `'30'` |
+| 文件中部的 `schedule` | 两行都被注释 | 取消注释并设 `cron: 05 22 * * 5` |
+| `jobs.build.if` | `${{ a }} == ${{ b }}`（写法有误） | `${{ a == b }}` |
+
+**漏了 `schedule` 最要命**，会导致定时编译静默失效，合并后务必确认那两行没有 `#`。
+
+`compile.yml` 的 `branches`、`paths`、`matrix.target` **不用管**：上游 `@trigger` 每次跑阶段一都会用 `sed` 把这三处改成正确值再推回来，会自愈。
+
+### tools/apply-custom-steps.sh
+
+幂等，跑几次都不会重复插入。只做 workflow 的结构性插入，不碰任何配置文件。
+
+```bash
+bash tools/apply-custom-steps.sh           # 补回缺失的步骤
+bash tools/apply-custom-steps.sh --check   # 只检查,缺东西时退出码1
+```
+
+跑完自带 YAML 校验。若打印 `锚点没了!`，说明上游动了 workflow 结构（比如换掉 `@mishi`），这时别硬插，回头看第二、三节的原理再决定位置。
+
+### 完整流程
 
 ```bash
 git fetch upstream
-git log --oneline HEAD..upstream/main                   # 先看上游更新了什么
-cp -Rf .github/workflows "BK/workflows-$(date +%Y%m%d)" # 动手前留一份
-git merge upstream/main
+git log --oneline HEAD..upstream/main          # 先看上游改了什么
+git merge upstream/main                       # 有冲突按上面两类处理
+bash tools/apply-custom-steps.sh --check      # 确认 9 项全在
+# 再按上表把 Immortalwrt.yml 的个人设置改回来
+git commit
 ```
 
-冲突大概率出现在 `Immortalwrt.yml`、`compile.yml`、`build/Immortalwrt/diy-part.sh` 这三个文件。
-处理原则：**以上游新版为底，把第四节表格里「加了什么」逐项补回去**，不要拿旧版整文件覆盖上游。
+合并后自查（前三条脚本已覆盖，列在这里是为了脚本报警时有依据）：
 
-补回后必须自查：
-
-1. 每个入口里 `选择本次编译使用的diy脚本` 在 `@mishi` **之前**
-2. `还原diy-part.sh` 在 `@mishi` **之后**（`compile.yml` 不需要这步，因为阶段二不回写 `build/`）
+1. `选择本次编译使用的diy脚本` 在 `@mishi` **之前**
+2. `还原diy-part.sh` 在 `@mishi` **之后**（`compile.yml` 不需要这步，阶段二不回写 `build/`）
 3. `补回kucat...` 在 `@need` **之后**、`下载软件包` 之前
-4. `npx --yes js-yaml <文件>` 三个 workflow 都能解析通过
+4. 三个 workflow 都能被 `npx --yes js-yaml` 解析
+
 
 ## 六、已知的坑
 
