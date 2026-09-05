@@ -49,6 +49,19 @@ jobs:
     - name: 准备结束
       uses: actions/checkout@v4
 
+    - name: 选择本次编译使用的diy脚本
+      run: |
+        cd "${GITHUB_WORKSPACE}/build/${FOLDER_NAME}"
+        # 机型取自阶段一固化的relevance/settings.ini,取不到则用默认的diy-part.sh
+        PICK_CONFIG="$(grep -m1 '^CONFIG_FILE=' relevance/settings.ini | sed -E 's/^CONFIG_FILE=//; s/[[:space:]]*#.*$//; s/^"//; s/"[[:space:]]*$//')"
+        if [[ "${PICK_CONFIG}" == *_250 ]] && [[ -f "diy-part-250.sh" ]]; then
+           cp -f diy-part-250.sh diy-part.sh
+           chmod +x diy-part.sh
+           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part-250.sh (250网段) \033[0m"
+        else
+           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part.sh (6网段) \033[0m"
+        fi
+
     - name: 检测密匙/文件/版本
       uses: 281677160/common@mishi
         

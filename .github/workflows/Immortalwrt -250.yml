@@ -29,7 +29,7 @@ on:
         type: choice
         options:
           - 'x86_64_250'
-          - 'armsr_rootfs_tar_gz'
+
       INFORMATION_NOTICE:
         description: 'Telegram或pushplus信息通知'
         required: true
@@ -99,16 +99,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [Immortalwrt-250]
+        target: [Immortalwrt]
         
         # 请勿对 target: [Immortalwrt] 做任何修改
         
     steps:
     - name: 准备结束
       uses: actions/checkout@v4
+
+    - name: 选择本次编译使用的diy脚本
+      run: |
+        cd "${GITHUB_WORKSPACE}/build/${FOLDER_NAME}"
+        # 备份仓库原版diy-part.sh,mishi之后还原,确保仓库内diy-part.sh始终是6网段版本
+        cp -f diy-part.sh /tmp/diy-part.sh.orig
+        # 手动触发取输入框的机型,定时或其他触发取settings.ini的机型
+        PICK_CONFIG="${{ github.event.inputs.CONFIG_FILE }}"
+        if [[ -z "${PICK_CONFIG}" ]]; then
+           PICK_CONFIG="$(grep -m1 '^CONFIG_FILE=' settings.ini | sed -E 's/^CONFIG_FILE=//; s/[[:space:]]*#.*$//; s/^"//; s/"[[:space:]]*$//')"
+        fi
+        if [[ "${PICK_CONFIG}" == *_250 ]] && [[ -f "diy-part-250.sh" ]]; then
+           cp -f diy-part-250.sh diy-part.sh
+           chmod +x diy-part.sh
+           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part-250.sh (250网段) \033[0m"
+        else
+           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part.sh (6网段) \033[0m"
+        fi
       
     - name: 检测密匙/文件/版本
       uses: 281677160/common@mishi
+
+    - name: 还原diy-part.sh(避免250网段配置被固化回仓库)
+      run: |
+        if [[ -f "/tmp/diy-part.sh.orig" ]]; then
+           cp -f /tmp/diy-part.sh.orig "${COMPILE_PATH}/diy-part.sh"
+           chmod +x "${COMPILE_PATH}/diy-part.sh"
+        fi
 
     - name: 部署编译环境
       env:
