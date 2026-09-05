@@ -160,6 +160,19 @@ jobs:
     - name: 运行其他和SSH远程(make menuconfig)
       id: info
       uses: 281677160/common@need
+
+    - name: 补回kucat配置插件到即将写入seed的配置
+      run: |
+        # 上游Diy_scripts按主题名执行 sed "/kucat/d",会连带删掉kucat-config两项,
+        # 这里补回,保证@trigger推回仓库的seed始终带这两项
+        for P in luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
+           if grep -q "^CONFIG_PACKAGE_${P}=y$" "${CONFIG_TXT}"; then
+              echo -e "\033[32m 已存在 CONFIG_PACKAGE_${P}=y \033[0m"
+           else
+              echo "CONFIG_PACKAGE_${P}=y" >> "${CONFIG_TXT}"
+              echo -e "\033[32m 已补回 CONFIG_PACKAGE_${P}=y \033[0m"
+           fi
+        done
         
     - name: 编译信息
       continue-on-error: true

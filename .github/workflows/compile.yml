@@ -87,6 +87,28 @@ jobs:
  
     - name: 运行自定义文件和其他
       uses: 281677160/common@need
+
+    - name: 补回kucat配置插件并核验kucat必须存在
+      run: |
+        cd "${HOME_PATH}"
+        # 上游Diy_scripts按主题名执行 sed "/kucat/d",会连带删掉kucat-config两项
+        for P in luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
+           sed -i "/^# CONFIG_PACKAGE_${P} is not set$/d" .config
+           grep -q "^CONFIG_PACKAGE_${P}=y$" .config || echo "CONFIG_PACKAGE_${P}=y" >> .config
+        done
+        make defconfig > /dev/null 2>&1
+        MISS=""
+        for P in luci-theme-kucat luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
+           if grep -q "^CONFIG_PACKAGE_${P}=y$" .config; then
+              echo -e "\033[32m 已选中 CONFIG_PACKAGE_${P}=y \033[0m"
+           else
+              MISS="${MISS} ${P}"
+           fi
+        done
+        if [[ -n "${MISS}" ]]; then
+           echo -e "\033[31m kucat要求未满足,缺失:${MISS} \033[0m"
+           exit 1
+        fi
         
     - name: 编译信息
       continue-on-error: true
