@@ -93,6 +93,18 @@
 
 本仓库对 `Immortalwrt.yml` 的改动散在 6 个区段（161 行的文件），所以冲突概率不低，但每次都只需处理冲突的那两三个文件。中途想放弃：`git merge --abort` 回到合并前。
 
+### ⚠️ 别碰 GitHub 网页上的「同步复刻 / Sync fork」按钮
+
+本仓库目前**领先上游 336 个提交、落后 0 个**。那个按钮在这种状态下有三种走向：
+
+- 上游有新提交且能干净合并 → 点 `Update branch` 是安全的，等价于 `git merge upstream/main` 成功，你的提交都还在
+- 有冲突 → 按钮做不了，GitHub 只会提示你去开 PR 解决，不会偷偷覆盖
+- 旁边那个**放弃提交的选项**（措辞见过 `Discard commits` / `Discard changes`）→ 把你的仓库硬重置到上游，**336 个提交连同所有 seed、diy 脚本、workflow 定制一起销毁，网页端没有撤销**
+
+这不是理论风险：GitHub 社区里多人这样丢过工作，有人丢了三个月的量，而官方文档里根本没写这个选项。见 [community/discussions/46271](https://github.com/orgs/community/discussions/46271)。
+
+**结论：同步一律走命令行**，按本节下面的流程做。万一要用网页按钮，只许点 `Update branch`，看到 `Discard` 字样就直接关页面。
+
 ### 冲突文件分两类处理
 
 **第一类：纯自己的配置** —— `build/Immortalwrt/` 下的 `diy-part.sh`、`diy-part-250.sh`、`seed/*`、`settings.ini`。
