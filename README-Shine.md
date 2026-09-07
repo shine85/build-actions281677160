@@ -4,34 +4,52 @@
 本文件只记录**本仓库相对上游改了什么**、**为什么这么改**、**同步上游后怎么补回来**。
 上游没有同名文件，`git merge upstream/main` 时本文件不会冲突。
 
-最后更新：2026-09-05
+最后更新：2026-09-07
 
 ---
 
 ## 一、编译入口一览
 
-| 入口 workflow | 编译文件夹 | 默认机型 | 实际用的 diy 脚本 | 后台 IP | 定时 |
+| 入口 workflow | 编译文件夹 | 机型 / 配置 | 实际用的 diy 脚本 | 后台 IP | 定时 |
 |---|---|---|---|---|---|
-| `Immortalwrt.yml`（Immortalwrt-天灵） | `build/Immortalwrt` | `x86_64` | `diy-part.sh` | 192.168.6.2 | 每周五 22:05 |
-| `Immortalwrt -250.yml`（Immortalwrt-天灵-250） | `build/Immortalwrt` | `x86_64_250` | `diy-part-250.sh` | 192.168.250.2 | 已注释，只手动 |
+| `Immortalwrt.yml`（Immortalwrt-天灵） | `build/Immortalwrt` | 手动单选，默认 `x86_64`；定时默认 `x86_64`、`x86_64_250` | 分别为 `diy-part.sh`、`diy-part-250.sh` | 分别为 192.168.6.2、192.168.250.2 | 北京时间每周六 06:05（UTC 周五 22:05） |
 | `compile.yml`（编译主程序） | `build/Immortalwrt` | 跟随阶段一 | 跟随机型 | — | 由 push 触发 |
 
-两个手动入口的 `target` 都是 `Immortalwrt`，**别同时触发**，会并发 force-push 同一个路径。
+Immortalwrt 只保留一个阶段一入口，cron 仍为 `05 22 * * 5`。同一分支用 workflow 级 `concurrency` 防止入口并发回写，`cancel-in-progress: false` 不取消正在运行的入口；一次运行内，`build` 的 `max-parallel: 1` 让配置逐个完成阶段一、分别触发阶段二，不代表两个阶段二也串行编译。
 
-## 二、双网段切换怎么工作
+## 二、双网段与定时列表怎么工作
 
 规则一句话：**机型名以 `_250` 结尾就用 `diy-part-250.sh`，否则用 `diy-part.sh`**。
-`diy-part.sh` 永久是 6 网段版本，任何情况下都不会被 250 配置固化回仓库。
+`diy-part.sh` 在仓库中保留为 6 网段版本；选择 250 配置时若缺少 `diy-part-250.sh`，直接报错，不回落到 6 网段。
 
-- 手动触发：读下拉框选的机型
-- 定时触发：下拉框为空，回落读 `build/Immortalwrt/settings.ini` 的 `CONFIG_FILE=`（现在是 `x86_64` → 6 网段）
-- 阶段二 `compile.yml`：读阶段一固化的 `build/Immortalwrt/relevance/settings.ini`
+- 手动触发：只编译下拉框选中的一个配置，**不修改长期定时列表**。
+- 定时触发：`plan` job 读取 `build/Immortalwrt/settings.ini` 的 `CONFIG_FILE`，生成 `build` 使用的 matrix。
+- 阶段二 `compile.yml`：显式 checkout 触发该次运行的 `github.sha`，读取该提交中的 `build/Immortalwrt/relevance/settings.ini`，再由 `select` 选择 DIY，避免读到下一配置的新提交。
 
-为什么必须在 `@mishi` **之前**切、`@mishi` **之后**还原：
+长期定时列表用空格分隔，默认配置示例：
+
+```ini
+CONFIG_FILE="x86_64 x86_64_250"
+```
+
+只长期编译一个时，改成 `CONFIG_FILE="x86_64"` 或 `CONFIG_FILE="x86_64_250"` 即可，不需要另建 workflow。源码分支由 `REPO_BRANCH` 单独选择，手动下拉保留新增的 `openwrt-25.12` 及既有选项；它是源码分支名，不是 `CONFIG_FILE` 配置名。
+
+选择与还原逻辑统一在 `tools/immortalwrt-config.sh`，四个命令的职责如下：
+
+| 命令 | 用途 |
+|---|---|
+| `matrix` | 为 `plan` 生成矩阵：手动取单个输入，定时取长期列表 |
+| `prepare` | 在 `@mishi` 前备份原始配置，临时把 `settings.ini` 写成本轮单配置，并选用对应 DIY |
+| `restore` | 在 `@mishi` 后把长期 `settings.ini` 与原版 `diy-part.sh` 还原到 `${COMPILE_PATH}` |
+| `select` | 阶段二按 `relevance/settings.ini` 中的单配置选择 DIY，缺少所需脚本即失败 |
+
+为什么阶段一要 checkout 最新分支，并在 `@mishi` **之前**切、**之后**还原：
+
+- 每个配置开始准备时 checkout 当前分支最新提交，才能保留前一个配置已经回写的 seed；只限制 `max-parallel: 1`、却始终 checkout 最初的提交，仍会覆盖前一轮成果。
 
 - `@mishi` 第一步就 `cp -Rf build operates`，随后 `source custom/first.sh` → `Diy_four` 把 `operates/Immortalwrt` 整个复制到 `/tmp/common/Immortalwrt`，把 `DIY_PT1_SH` 钉在那个副本上，同时把 `export` 行静态 grep 成 `diy2-part.sh`。**所以切换必须早于 mishi，运行时 source 别的脚本没用。**
-- 真正被执行的是 `/tmp/common` 那份副本（`common.sh` 的 `Diy_partsh` 直接跑 `${DIY_PT1_SH}`），所以 mishi 之后把 6 网段原版写回 `operates/Immortalwrt/diy-part.sh` 不影响本次编译。
-- `@trigger` 把 `operates/Immortalwrt` force-push 回 `build/Immortalwrt`，还原步骤就是靠这一点保证仓库里的 `diy-part.sh` 始终是 6 网段。
+- 真正被执行的是 `/tmp/common` 那份副本（`common.sh` 的 `Diy_partsh` 直接跑 `${DIY_PT1_SH}`），所以 mishi 之后把长期 `settings.ini` 和 6 网段原版 DIY 写回 `${COMPILE_PATH}` 不影响本次编译。
+- `@trigger` 把 `${COMPILE_PATH}` 回写到 `build/Immortalwrt`：根目录保留长期列表与原版 DIY，`relevance/settings.ini` 则保留本轮单配置，供阶段二使用。手动选择或矩阵中的单个配置都不能把长期列表固化成单配置。
 
 ## 三、kucat 为什么需要「补回」步骤
 
@@ -56,9 +74,10 @@
 
 新增：
 
-- `.github/workflows/Immortalwrt -250.yml` — 250 手动入口
 - `build/Immortalwrt/diy-part-250.sh` — 250 网段 diy 配置
 - `build/Immortalwrt/seed/x86_64_250` — 250 机型 seed
+- `tools/immortalwrt-config.sh` — 矩阵生成、单配置准备、长期配置还原和 DIY 选择的统一实现
+- `tools/apply-custom-steps.sh` — 同步上游后维护两个 workflow 的自定义结构
 - `.github/workflows/clean-workflow.yml`、`keepalive.yml` — 自建
 - `README-Shine.md` — 本文件
 
@@ -66,15 +85,14 @@
 
 | 文件 | 加了什么 |
 |---|---|
-| `Immortalwrt.yml` | CONFIG_FILE 下拉加 `x86_64_250`；`@mishi` 前加 `选择本次编译使用的diy脚本`；`@mishi` 后加 `还原diy-part.sh`；`@need` 后加 `补回kucat配置插件到即将写入seed的配置` |
-| `Immortalwrt -250.yml` | 同上三步（整个文件是新增的） |
-| `compile.yml` | `@mishi` 前加 `选择本次编译使用的diy脚本`；`@need` 后加 `补回kucat配置插件并核验kucat必须存在` |
+| `Immortalwrt.yml` | 保留 `x86_64_250` 和 `openwrt-25.12` 下拉选项；新增 `plan`、动态 matrix、同分支并发控制与 `max-parallel: 1`；准备时 checkout 最新分支；`@mishi` 前后调用 `prepare` / `restore`；保留 `@need` 后的 kucat 补回步骤 |
+| `compile.yml` | 显式 checkout `github.sha`；`@mishi` 前读取 `relevance/settings.ini` 并调用 `select`；保留 `@need` 后的 `补回kucat配置插件并核验kucat必须存在` |
 | `build/Immortalwrt/diy-part.sh` | 两个 kucat 插件源、6 网段 IP、`Mandatory_theme`/`Default_theme=kucat`、个性签名 |
 | `build/Immortalwrt/seed/x86_64` | kucat 三件套等选包 |
-| `build/Immortalwrt/settings.ini` | 自己的编译参数 |
+| `build/Immortalwrt/settings.ini` | 自己的编译参数；`CONFIG_FILE="x86_64 x86_64_250"` 作为默认长期定时列表，也支持只填一个 |
 | `.github/workflows/Mt798x.yml` | 只是默认机型/通知/cron 的默认值，与上面无关 |
 
-`build/Immortalwrt/relevance/` 下的 `settings.ini` 和 `start` 是 CI 自动生成的，不用管。
+`build/Immortalwrt/relevance/` 下的 `settings.ini` 和 `start` 是 CI 自动生成的，不手工修改；这里的 `CONFIG_FILE` 只记录该次单配置，不是长期定时列表。
 
 ## 五、同步上游代码：会不会覆盖我的改动
 
@@ -86,12 +104,12 @@
 | 上游动的地方离你改的地方远（隔 3 行以上） | **自动合并**，两边改动都在 |
 | 上游动的地方和你改的地方重叠或紧邻 | **冲突**，git 停下来等你处理 |
 
-已实测（`git merge-tree` 在内存里试合并，不碰工作区）：
+旧结构的历史验证（`git merge-tree` 在内存里试合并，不碰工作区；不代表本次双配置调度已通过 CI）：
 
-- 上游只改文件尾部、或在中段插新行 → **自动合并成功**，3 个自定义步骤和 `cron: 05 22 * * 5` 全在，上游改动也进来了
+- 上游只改文件尾部、或在中段插新行 → **自动合并成功**，当时的自定义步骤和 `cron: 05 22 * * 5` 全在，上游改动也进来了
 - 上游改 `runs-on` 或 `actions/checkout@v4` → **冲突**（前者紧邻自定义的 `if:` 行，后者正是插入锚点）
 
-本仓库对 `Immortalwrt.yml` 的改动散在 6 个区段（161 行的文件），所以冲突概率不低，但每次都只需处理冲突的那两三个文件。中途想放弃：`git merge --abort` 回到合并前。
+现在 `Immortalwrt.yml` 的定制还包括 `plan`、matrix、并发控制和 checkout，不能只检查旧的三个步骤。中途想放弃：`git merge --abort` 回到合并前。
 
 ### ⚠️ 别碰 GitHub 网页上的「同步复刻 / Sync fork」按钮
 
@@ -132,33 +150,33 @@ git add .github/workflows/
 
 注意 `--theirs` 是**你主动选择**用上游版本，它会连带丢掉下面那张表里的个人设置，记得一并改回来。
 
-`Immortalwrt -250.yml` 是本仓库独有的文件，上游没有，**永远不会冲突**。
+保留 `tools/immortalwrt-config.sh` 和 `tools/apply-custom-steps.sh`；两个配置共用主入口，不再恢复独立的 250 workflow。
 
 ### 用 `git checkout --theirs` 之后，这几项个人设置要手工改回来
 
-脚本只补步骤，不管下面这些偏好值。`Immortalwrt.yml` 里被上游版本盖掉的是：
+脚本维护 workflow 结构，不替你选择个人偏好；`Immortalwrt.yml` 里被上游版本盖掉后仍需核对的是：
 
 | 位置 | 上游值 | 要改成 |
 |---|---|---|
 | `INFORMATION_NOTICE` 的 `default` | `'关闭'` | `'Telegram'` |
 | 清理 workflows 保留数的 `default` | `'50'` | `'30'` |
 | 文件中部的 `schedule` | 两行都被注释 | 取消注释并设 `cron: 05 22 * * 5` |
-| `jobs.build.if` | `${{ a }} == ${{ b }}`（写法有误） | `${{ a == b }}` |
+| `REPO_BRANCH` 的 `options` | 以上游当次内容为准 | 保留新增的 `openwrt-25.12` 及既有分支选项 |
 
-**漏了 `schedule` 最要命**，会导致定时编译静默失效，合并后务必确认那两行没有 `#`。
+**漏了 `schedule` 最要命**，会导致定时编译静默失效，合并后务必确认那两行没有 `#`。`build` 的条件也必须允许 `schedule`，不能仅依赖手动事件的 sender 判断；这属于补回脚本维护的结构，须用 `--check` 核对。cron 使用 UTC，上述时间对应北京时间每周六 06:05。
 
 `compile.yml` 的 `branches`、`paths`、`matrix.target` **不用管**：上游 `@trigger` 每次跑阶段一都会用 `sed` 把这三处改成正确值再推回来，会自愈。
 
 ### tools/apply-custom-steps.sh
 
-幂等，跑几次都不会重复插入。只做 workflow 的结构性插入，不碰任何配置文件。
+幂等，跑几次都不会重复插入。只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用与原有 kucat 步骤。
 
 ```bash
-bash tools/apply-custom-steps.sh           # 补回缺失的步骤
+bash tools/apply-custom-steps.sh           # 补回 workflow 结构
 bash tools/apply-custom-steps.sh --check   # 只检查,缺东西时退出码1
 ```
 
-跑完自带 YAML 校验。若打印 `锚点没了!`，说明上游动了 workflow 结构（比如换掉 `@mishi`），这时别硬插，回头看第二、三节的原理再决定位置。
+脚本会尝试 YAML 校验；缺少 `npx` 时会提示跳过，不能视为解析已验证。若打印 `锚点没了!`，说明上游动了 workflow 结构（比如换掉 `@mishi`），这时别硬插，回头看第二、三节的原理再决定位置。
 
 ### 完整流程
 
@@ -166,22 +184,29 @@ bash tools/apply-custom-steps.sh --check   # 只检查,缺东西时退出码1
 git fetch upstream
 git log --oneline HEAD..upstream/main          # 先看上游改了什么
 git merge upstream/main                       # 有冲突按上面两类处理
-bash tools/apply-custom-steps.sh --check      # 确认 9 项全在
+bash tools/apply-custom-steps.sh --check
 # 再按上表把 Immortalwrt.yml 的个人设置改回来
 git commit
 ```
 
-合并后自查（前三条脚本已覆盖，列在这里是为了脚本报警时有依据）：
+合并后自查（结构检查由脚本覆盖，配置偏好另行核对）：
 
-1. `选择本次编译使用的diy脚本` 在 `@mishi` **之前**
-2. `还原diy-part.sh` 在 `@mishi` **之后**（`compile.yml` 不需要这步，阶段二不回写 `build/`）
-3. `补回kucat...` 在 `@need` **之后**、`下载软件包` 之前
-4. 三个 workflow 都能被 `npx --yes js-yaml` 解析
+1. `tools/immortalwrt-config.sh` 存在；`plan` 用 `matrix` 生成输出，`build` 消费该输出；两者均可随定时事件执行，手动仍只选一个配置。
+2. 同分支 workflow `concurrency` 的 `cancel-in-progress: false`、`build` 的 `max-parallel: 1` 均保留，阶段一准备时 checkout 最新分支以保留前一配置的 seed。
+3. `prepare` 在 `@mishi` **之前**，`restore` 在其**之后**，还原长期 `settings.ini` 和原版 DIY 到 `${COMPILE_PATH}`；阶段二不回写 `build/`，不需要还原。
+4. `compile.yml` 显式 checkout `github.sha`，按该提交的 `relevance/settings.ini` 调用 `select`；250 脚本缺失时必须报错，不能静默回落。
+5. 原有 `补回kucat...` 仍在 `@need` **之后**、`下载软件包` 之前；两个 workflow 都能被 `npx --yes js-yaml` 解析。
+6. `CONFIG_FILE` 长期列表、`openwrt-25.12` 下拉选项、通知与保留数按需保留；cron 仍为 `05 22 * * 5`，即北京时间每周六 06:05。
 
 
 ## 六、已知的坑
 
-1. **seed 每次编译后会被 CI 覆盖。** `Diy_prevent` 用 `diffconfig.sh` 生成 `CONFIG_TXT`，`@trigger` 再把它拷成 `seed/<机型>`。手写进 seed 的选包会被重排，变成依赖项的会直接消失——`luci-theme-argon` 就是这样在提交 `7891e6e` 里没的。
+1. **seed 每次编译后会被 CI 覆盖。** `Diy_prevent` 用 `diffconfig.sh` 生成 `CONFIG_TXT`，`@trigger` 再把它拷成 `seed/<机型>`。手写进 seed 的选包会被重排，变成依赖项的会直接消失——`luci-theme-argon` 就是这样在提交 `7891e6e` 里没的。多配置阶段一还必须 checkout 最新分支，否则后一个配置可能覆盖前一个刚回写的 seed。
 2. **判断插件包名要看被 clone 的那个分支。** `git clone` 不带 `-b` 取默认分支。`luci-app-kucat-config` 的 `master` 里 `NAME:=kucat-config` → 包名 `luci-app-kucat-config`；它还有条 `main` 分支写的是 `NAME:=kucat` → 包名会变成 `luci-app-kucat`，符号名就不一样了。
-3. **推 workflow 改动不会触发编译。** `compile.yml` 只在 `build/Immortalwrt/relevance/start` 变化时触发，改完 workflow 得手动跑一次入口。
-4. **仓库没有 `.gitignore`**，`BK/`、`memory/`、`tmp/` 都没被拦住，别用 `git add .`。
+3. **推 workflow 改动不会触发编译。** `compile.yml` 只在 `build/Immortalwrt/relevance/start` 变化时触发；验证两个配置需分别手动选择，或等待定时按长期列表触发，单次手动运行不会遍历长期列表。
+4. **长期列表与本轮配置不是同一份状态。** 长期设置只改 `build/Immortalwrt/settings.ini`；`relevance/settings.ini` 必须是本轮单配置。手动选择不能改掉长期列表，`restore` 也不能把列表写进 `relevance/settings.ini`。
+5. **两个阶段的 checkout 策略不能互换。** 阶段一取最新分支是为了累积 seed；阶段二固定 `github.sha` 是为了读取与触发事件匹配的配置，不能追随分支最新提交。
+6. **缺少 250 DIY 不是可以回落的情况。** 选择 `_250` 配置而缺少 `diy-part-250.sh` 必须失败，否则会把 250 配置错误编译成 6 网段。
+7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
+
+验证边界：本次双配置调度重构尚未由 GitHub Actions 实跑验证；本地脚本检查和 YAML 解析不能代替两个配置的实际 CI 结果。

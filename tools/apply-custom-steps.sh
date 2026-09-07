@@ -17,45 +17,75 @@ CHECK=0
 
 W1=".github/workflows/Immortalwrt.yml"
 W2=".github/workflows/compile.yml"
-W3=".github/workflows/Immortalwrt -250.yml"
-
-ANCHOR_CHECKOUT="      uses: actions/checkout@v4"
 ANCHOR_MISHI="      uses: 281677160/common@mishi"
 ANCHOR_NEED="      uses: 281677160/common@need"
 
-TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
+TMPD=''
+if [[ "$CHECK" == 0 ]]; then
+  mkdir -p tmp
+  TMPD="$(mktemp -d "$PWD/tmp/custom-steps.XXXXXX")" || exit 1
+  trap 'rm -f "$TMPD/f" "$TMPD/workflow"; rmdir "$TMPD"' EXIT
+fi
 CHANGED=0; MISSING=0; BROKEN=0
+
+frag_concurrency(){ cat > "$TMPD/f" <<'FRAG'
+
+concurrency:
+  group: immortalwrt-prepare-${{ github.ref }}
+  cancel-in-progress: false
+FRAG
+}
+
+frag_plan(){ cat > "$TMPD/f" <<'FRAG'
+  plan:
+    name: 规划本次编译配置
+    runs-on: ubuntu-22.04
+    outputs:
+      configs: ${{ steps.configs.outputs.configs }}
+    steps:
+    - name: 读取配置
+      uses: actions/checkout@v4
+    - name: 生成配置矩阵
+      id: configs
+      env:
+        INPUT_CONFIG: ${{ github.event.inputs.CONFIG_FILE }}
+      run: bash tools/immortalwrt-config.sh matrix
+
+FRAG
+}
+
+frag_needs(){ printf '    needs: plan\n' > "$TMPD/f"; }
+frag_parallel(){ printf '      max-parallel: 1\n' > "$TMPD/f"; }
+frag_matrix(){ cat > "$TMPD/f" <<'FRAG'
+        config_file: ${{ fromJSON(needs.plan.outputs.configs) }}
+FRAG
+}
+
+frag_checkout_stage1(){ cat > "$TMPD/f" <<'FRAG'
+      with:
+        ref: ${{ github.ref_name }}
+FRAG
+}
+
+frag_checkout_stage2(){ cat > "$TMPD/f" <<'FRAG'
+      with:
+        ref: ${{ github.sha }}
+FRAG
+}
 
 frag_pick_stage1(){ cat > "$TMPD/f" <<'FRAG'
 
     - name: 选择本次编译使用的diy脚本
-      run: |
-        cd "${GITHUB_WORKSPACE}/build/${FOLDER_NAME}"
-        # 备份仓库原版diy-part.sh,mishi之后还原,确保仓库内diy-part.sh始终是6网段版本
-        cp -f diy-part.sh /tmp/diy-part.sh.orig
-        # 手动触发取输入框的机型,定时或其他触发取settings.ini的机型
-        PICK_CONFIG="${{ github.event.inputs.CONFIG_FILE }}"
-        if [[ -z "${PICK_CONFIG}" ]]; then
-           PICK_CONFIG="$(grep -m1 '^CONFIG_FILE=' settings.ini | sed -E 's/^CONFIG_FILE=//; s/[[:space:]]*#.*$//; s/^"//; s/"[[:space:]]*$//')"
-        fi
-        if [[ "${PICK_CONFIG}" == *_250 ]] && [[ -f "diy-part-250.sh" ]]; then
-           cp -f diy-part-250.sh diy-part.sh
-           chmod +x diy-part.sh
-           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part-250.sh (250网段) \033[0m"
-        else
-           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part.sh (6网段) \033[0m"
-        fi
+      env:
+        PICK_CONFIG: ${{ matrix.config_file }}
+      run: bash tools/immortalwrt-config.sh prepare
 FRAG
 }
 
 frag_restore(){ cat > "$TMPD/f" <<'FRAG'
 
-    - name: 还原diy-part.sh(避免250网段配置被固化回仓库)
-      run: |
-        if [[ -f "/tmp/diy-part.sh.orig" ]]; then
-           cp -f /tmp/diy-part.sh.orig "${COMPILE_PATH}/diy-part.sh"
-           chmod +x "${COMPILE_PATH}/diy-part.sh"
-        fi
+    - name: 还原长期配置和diy脚本
+      run: bash tools/immortalwrt-config.sh restore
 FRAG
 }
 
@@ -79,17 +109,7 @@ FRAG
 frag_pick_stage2(){ cat > "$TMPD/f" <<'FRAG'
 
     - name: 选择本次编译使用的diy脚本
-      run: |
-        cd "${GITHUB_WORKSPACE}/build/${FOLDER_NAME}"
-        # 机型取自阶段一固化的relevance/settings.ini,取不到则用默认的diy-part.sh
-        PICK_CONFIG="$(grep -m1 '^CONFIG_FILE=' relevance/settings.ini | sed -E 's/^CONFIG_FILE=//; s/[[:space:]]*#.*$//; s/^"//; s/"[[:space:]]*$//')"
-        if [[ "${PICK_CONFIG}" == *_250 ]] && [[ -f "diy-part-250.sh" ]]; then
-           cp -f diy-part-250.sh diy-part.sh
-           chmod +x diy-part.sh
-           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part-250.sh (250网段) \033[0m"
-        else
-           echo -e "\033[32m 机型[${PICK_CONFIG}]:本次使用 diy-part.sh (6网段) \033[0m"
-        fi
+      run: bash tools/immortalwrt-config.sh select
 FRAG
 }
 
@@ -119,26 +139,56 @@ frag_kucat_stage2(){ cat > "$TMPD/f" <<'FRAG'
 FRAG
 }
 
-# 在锚点行之后插入一个步骤;步骤名已存在则跳过
-insert_step(){ # $1=yml $2=步骤名 $3=锚点 $4=生成片段的函数名
-  local f="$1" name="$2" anchor="$3" mk="$4"
-  if [[ ! -f "$f" ]]; then
-    printf '  文件不存在!   %s\n' "$f"; BROKEN=$((BROKEN+1)); return
+insert_block(){
+  local file="$1" marker="$2" anchor="$3" generator="$4" scope="${5:-build}"
+  if [[ ! -f "$file" ]]; then
+    printf '  文件不存在!   %s\n' "$file"; BROKEN=$((BROKEN+1)); return
   fi
-  if grep -qF "    - name: ${name}" "$f"; then
-    printf '  已存在  %-46s %s\n' "$name" "${f##*/}"; return
+  if grep -qxF "$marker" "$file"; then
+    printf '  已存在  %s %s\n' "$marker" "${file##*/}"; return
   fi
   if [[ "$CHECK" == 1 ]]; then
-    printf '  缺失!   %-46s %s\n' "$name" "${f##*/}"; MISSING=$((MISSING+1)); return
+    printf '  缺失!   %s %s\n' "$marker" "${file##*/}"; MISSING=$((MISSING+1)); return
   fi
-  if ! grep -qxF "$anchor" "$f"; then
-    printf '  锚点没了! %-44s %s <- 上游可能改了结构,要手工处理\n' "$name" "${f##*/}"
+  if ! grep -qxF "$anchor" "$file"; then
+    printf '  锚点没了! %s %s <- 上游可能改了结构,要手工处理\n' "$marker" "${file##*/}"
     BROKEN=$((BROKEN+1)); return
   fi
-  "$mk"
-  awk -v ff="$TMPD/f" -v a="$anchor" \
-    '{print} $0==a && !d {while((getline l < ff)>0) print l; d=1}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-  printf '  已插入  %-46s %s\n' "$name" "${f##*/}"; CHANGED=$((CHANGED+1))
+  "$generator"
+  if ! awk -v fragment="$TMPD/f" -v anchor="$anchor" -v scope="$scope" '
+    $0=="  build:" {in_build=1}
+    {print}
+    $0==anchor && !inserted && (scope=="all" || in_build) {
+      while ((getline fragment_line < fragment)>0) print fragment_line
+      inserted=1
+    }
+    END {if (!inserted) exit 1}
+  ' "$file" > "$TMPD/workflow"; then
+    printf '  锚点作用域不匹配! %s %s\n' "$marker" "${file##*/}"
+    BROKEN=$((BROKEN+1)); return
+  fi
+  cat "$TMPD/workflow" > "$file" || exit 1
+  printf '  已插入  %s %s\n' "$marker" "${file##*/}"; CHANGED=$((CHANGED+1))
+}
+
+insert_step(){
+  insert_block "$1" "    - name: $2" "$3" "$4"
+}
+
+ensure_schedule_condition(){
+  local expected="    if: \${{ github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id }}"
+  if grep -qxF "$expected" "$W1"; then
+    echo '  已存在  定时触发条件'; return
+  fi
+  if [[ "$CHECK" == 1 ]]; then
+    echo '  缺失!   定时触发条件'; MISSING=$((MISSING+1)); return
+  fi
+  if ! grep -q '^    if: .*github.event.repository.owner.id' "$W1"; then
+    echo '  锚点没了! 定时触发条件'; BROKEN=$((BROKEN+1)); return
+  fi
+  awk -v expected="$expected" '/^    if: .*github.event.repository.owner.id/ {print expected; next} {print}' "$W1" > "$TMPD/workflow"
+  cat "$TMPD/workflow" > "$W1" || exit 1
+  echo '  已更新  定时触发条件'; CHANGED=$((CHANGED+1))
 }
 
 # 给阶段一入口的机型下拉补上 x86_64_250
@@ -150,24 +200,32 @@ add_option(){ # $1=yml
   if ! grep -qxF "          - 'x86_64'" "$f"; then
     printf '  锚点没了! %-44s %s\n' "机型下拉 x86_64_250" "${f##*/}"; BROKEN=$((BROKEN+1)); return
   fi
-  awk -v o="$opt" '{print} $0=="          - '\''x86_64'\''" && !d {print o; d=1}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  awk -v o="$opt" '{print} $0=="          - '\''x86_64'\''" && !d {print o; d=1}' "$f" > "$TMPD/workflow"
+  cat "$TMPD/workflow" > "$f" || exit 1
   printf '  已插入  %-46s %s\n' "机型下拉 x86_64_250" "${f##*/}"; CHANGED=$((CHANGED+1))
 }
 
 echo "== 阶段一 ${W1##*/}"
+insert_block "$W1" 'concurrency:' '  TZ: Asia/Shanghai' frag_concurrency all
+insert_block "$W1" '  plan:' 'jobs:' frag_plan all
+insert_block "$W1" '    needs: plan' '  build:' frag_needs
+insert_block "$W1" '      max-parallel: 1' '      fail-fast: false' frag_parallel
+insert_block "$W1" '        config_file: ${{ fromJSON(needs.plan.outputs.configs) }}' '        target: [Immortalwrt]' frag_matrix
+insert_block "$W1" '        ref: ${{ github.ref_name }}' '      uses: actions/checkout@v4' frag_checkout_stage1
+ensure_schedule_condition
 add_option     "$W1"
-insert_step    "$W1" "选择本次编译使用的diy脚本"              "$ANCHOR_CHECKOUT" frag_pick_stage1
-insert_step    "$W1" "还原diy-part.sh(避免250网段配置被固化回仓库)" "$ANCHOR_MISHI"    frag_restore
+insert_step    "$W1" "选择本次编译使用的diy脚本"              '        ref: ${{ github.ref_name }}' frag_pick_stage1
+insert_step    "$W1" "还原长期配置和diy脚本"                   "$ANCHOR_MISHI"    frag_restore
 insert_step    "$W1" "补回kucat配置插件到即将写入seed的配置"   "$ANCHOR_NEED"     frag_kucat_stage1
 
-echo "== 阶段一(250入口) ${W3##*/}"
-insert_step    "$W3" "选择本次编译使用的diy脚本"              "$ANCHOR_CHECKOUT" frag_pick_stage1
-insert_step    "$W3" "还原diy-part.sh(避免250网段配置被固化回仓库)" "$ANCHOR_MISHI"    frag_restore
-insert_step    "$W3" "补回kucat配置插件到即将写入seed的配置"   "$ANCHOR_NEED"     frag_kucat_stage1
-
 echo "== 阶段二 ${W2##*/}"
-insert_step    "$W2" "选择本次编译使用的diy脚本"              "$ANCHOR_CHECKOUT" frag_pick_stage2
+insert_block "$W2" '        ref: ${{ github.sha }}' '      uses: actions/checkout@v4' frag_checkout_stage2
+insert_step    "$W2" "选择本次编译使用的diy脚本"              '        ref: ${{ github.sha }}' frag_pick_stage2
 insert_step    "$W2" "补回kucat配置插件并核验kucat必须存在"    "$ANCHOR_NEED"     frag_kucat_stage2
+
+if [[ ! -f tools/immortalwrt-config.sh ]]; then
+  echo '  文件不存在! tools/immortalwrt-config.sh'; BROKEN=$((BROKEN+1))
+fi
 
 echo
 if [[ "$CHECK" == 1 ]]; then
@@ -181,14 +239,14 @@ echo "本次插入 ${CHANGED} 项, 结构异常 ${BROKEN} 项"
 if command -v npx >/dev/null 2>&1; then
   echo "== YAML 语法校验"
   RC=0
-  for f in "$W1" "$W2" "$W3"; do
+  for f in "$W1" "$W2"; do
     [[ -f "$f" ]] || continue
-    if npx --yes js-yaml "$f" >/dev/null 2>&1; then printf '  通过  %s\n' "${f##*/}"
+    if npx --yes js-yaml "$f" >/dev/null; then printf '  通过  %s\n' "${f##*/}"
     else printf '  不通过! %s\n' "${f##*/}"; RC=1; fi
   done
   [[ "$RC" == 0 ]] || { echo "有文件语法不通过,先修好再提交"; exit 1; }
 else
-  echo "没找到 npx,跳过 YAML 校验;请自行确认三个 workflow 能被解析"
+  echo "没找到 npx,跳过 YAML 校验;请自行确认两个 workflow 能被解析"
 fi
 
 [[ "$BROKEN" -eq 0 ]] || exit 1
