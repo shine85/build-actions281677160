@@ -1,0 +1,50 @@
+name: Runner 状态与日志诊断
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Ubuntu 22.04 runner 五分钟采样
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - name: 读取诊断脚本
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 采集初始状态
+        run: timeout 15s node tools/runner-diagnostics.cjs initial
+
+      - name: 独立保存初始证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-initial
+          path: tmp/runner-diagnostics/initial.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: 连续采样五分钟
+        run: |
+          for sample in $(seq 1 10); do
+            sleep 30
+            timeout 15s node tools/runner-diagnostics.cjs "sample-${sample}"
+          done
+
+      - name: 采集收尾前状态
+        if: always()
+        run: timeout 15s node tools/runner-diagnostics.cjs final
+
+      - name: 独立保存采样证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-final
+          path: tmp/runner-diagnostics/*.json
+          if-no-files-found: error
+          retention-days: 3
