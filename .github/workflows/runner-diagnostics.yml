@@ -8,9 +8,9 @@ permissions:
 
 jobs:
   diagnose:
-    name: Ubuntu 22.04 runner 五分钟采样
+    name: Ubuntu 22.04 部署环境对照诊断
     runs-on: ubuntu-22.04
-    timeout-minutes: 12
+    timeout-minutes: 35
     steps:
       - name: 读取诊断脚本
         uses: actions/checkout@v4
@@ -29,7 +29,43 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: 执行原部署环境脚本
+        id: deploy
+        timeout-minutes: 20
+        shell: bash
+        env:
+          COMMON_COMMIT: 40f2578860690ebccbbdfec0fdae48e7106cd43f
+          DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
+        run: |
+          curl -fsSL --connect-timeout 15 --max-time 120 \
+            "https://raw.githubusercontent.com/281677160/common/${COMMON_COMMIT}/custom/ubuntu.sh" \
+            -o tmp/runner-diagnostics/ubuntu.sh
+          printf 'common_commit=%s\n' "$COMMON_COMMIT" | tee tmp/runner-diagnostics/deployment-source.txt
+          sha256sum tmp/runner-diagnostics/ubuntu.sh | tee -a tmp/runner-diagnostics/deployment-source.txt
+          sudo bash tmp/runner-diagnostics/ubuntu.sh
+          sudo timedatectl set-timezone "$TZ"
+          work_directory="$GITHUB_WORKSPACE/tmp/runner-diagnostics-work"
+          sudo mkdir -p "$work_directory"
+          sudo chown "${USER}:${GROUPS}" "$work_directory"
+
+      - name: 采集部署后状态
+        if: always()
+        run: timeout 15s node tools/runner-diagnostics.cjs after-deploy
+
+      - name: 独立保存部署后证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-after-deploy
+          path: |
+            tmp/runner-diagnostics/after-deploy.json
+            tmp/runner-diagnostics/deployment-source.txt
+          if-no-files-found: error
+          retention-days: 3
+
       - name: 连续采样五分钟
+        if: ${{ !cancelled() }}
         run: |
           for sample in $(seq 1 10); do
             sleep 30
@@ -45,6 +81,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-final
-          path: tmp/runner-diagnostics/*.json
+          path: |
+            tmp/runner-diagnostics/*.json
+            tmp/runner-diagnostics/deployment-source.txt
           if-no-files-found: error
           retention-days: 3
