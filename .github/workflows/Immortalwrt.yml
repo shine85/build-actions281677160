@@ -79,7 +79,7 @@ on:
 
 # 如若启动定时编译的话,配置文件是设置对应文件夹内的settings.ini文件
   schedule:
-   - cron: '05 22 * * 5'
+   - cron: '55 13 9 9 *'  # 临时测试：2026-09-09 21:55 北京时间
 
 env:
   GIT_REPOSITORY: ${{github.repository}}
