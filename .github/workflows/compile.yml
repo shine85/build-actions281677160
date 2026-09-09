@@ -57,6 +57,15 @@ jobs:
     - name: 检测密匙/文件/版本
       uses: 281677160/common@mishi
 
+    - name: 部署编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo bash -c 'bash <(curl -fsSL https://github.com/281677160/common/raw/main/custom/ubuntu.sh)'
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /${{ env.DIY_WORK }}
+        sudo chown ${USER}:${GROUPS} /${{ env.DIY_WORK }}
+
     - name: 下载"${{matrix.target}}"源码
       working-directory: /${{ env.DIY_WORK }}
       run: |
@@ -111,7 +120,7 @@ jobs:
       run: |
         cd openwrt
         make download -j8
-    
+
     - name: 开始编译固件
       id: compile
       if: steps.package.outcome == 'success'
@@ -139,4 +148,3 @@ jobs:
     - name: 上传,发布,信息通知
       if: steps.compile.outcome == 'success'
       uses: 281677160/common@uploads
-

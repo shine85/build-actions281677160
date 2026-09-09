@@ -150,6 +150,18 @@ jobs:
         sudo mkdir -p /${{ env.DIY_WORK }}
         sudo chown $USER:$GROUPS /${{ env.DIY_WORK }}
 
+    - name: 下载"${{ matrix.target }}-${{ inputs.REPO_BRANCH }}"源码
+      working-directory: /${{ env.DIY_WORK }}
+      run: |
+        git clone -q -b "${REPO_BRANCH}" --single-branch "${REPO_URL}" openwrt
+        ln -sf /${{ env.DIY_WORK }}/openwrt ${GITHUB_WORKSPACE}/openwrt
+        bash ${{ env.COMMON_SH }} Diy_feedsconf
+        echo "SHANG_CHUAN=true" >> ${GITHUB_ENV}
+    
+    - name: 公告
+      continue-on-error: true
+      uses: 281677160/common@message
+ 
     - name: 运行其他和SSH远程(make menuconfig)
       id: info
       uses: 281677160/common@need
@@ -187,8 +199,7 @@ jobs:
         max_workflows_fetch: 300
         repo: ${{ github.repository }}
         gh_token: ${{ secrets.REPO_TOKEN }}
-        
+
     - name: 触发启动"${{ matrix.target }}"开始编译
       if: steps.info.outcome == 'success'
       uses: 281677160/common@trigger
-
