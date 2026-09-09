@@ -24,8 +24,8 @@ on:
           - 'openwrt-23.05'
           - 'master'
       CONFIG_FILE:
-        description: '请选择[seed文件夹内]的配置文件'
-        required: true
+        description: '请选择[seed文件夹内]的配置文件，不选则走定时双配置'
+        required: false
         default: 'x86_64'
         type: choice
         options:
