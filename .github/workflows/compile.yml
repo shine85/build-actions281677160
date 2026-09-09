@@ -51,38 +51,11 @@ jobs:
       with:
         ref: ${{ github.sha }}
 
-    - name: 诊断-编译初始状态
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-checkout
-
     - name: 选择本次编译使用的diy脚本
       run: bash tools/immortalwrt-config.sh select
 
     - name: 检测密匙/文件/版本
       uses: 281677160/common@mishi
-
-    - name: 诊断-编译密匙检测后
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-after-mishi
-        
-    - name: 部署编译环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo bash -c 'bash <(curl -fsSL https://github.com/281677160/common/raw/main/custom/ubuntu.sh)'
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /${{ env.DIY_WORK }}
-        sudo chown ${USER}:${GROUPS} /${{ env.DIY_WORK }}
-
-    - name: 诊断-编译环境部署后
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-after-deploy
 
     - name: 下载"${{matrix.target}}"源码
       working-directory: /${{ env.DIY_WORK }}
@@ -95,20 +68,8 @@ jobs:
       continue-on-error: true
       uses: 281677160/common@message
  
-    - name: 诊断-编译自定义处理前
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-before-need
-
     - name: 运行自定义文件和其他
       uses: 281677160/common@need
-
-    - name: 诊断-编译自定义处理后
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-after-need
 
     - name: 补回kucat配置插件并核验kucat必须存在
       run: |
@@ -151,12 +112,6 @@ jobs:
         cd openwrt
         make download -j8
     
-    - name: 诊断-实际编译前
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-before-compile
-
     - name: 开始编译固件
       id: compile
       if: steps.package.outcome == 'success'
@@ -164,12 +119,6 @@ jobs:
         cd openwrt
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
-
-    - name: 诊断-实际编译后
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-after-compile
 
     - name: 自动打包armsr_rootfs_tar_gz
       if: steps.compile.outcome == 'success' && env.ONLINE_FIRMWARE == 'true'
@@ -191,9 +140,3 @@ jobs:
       if: steps.compile.outcome == 'success'
       uses: 281677160/common@uploads
 
-    - name: 诊断-编译最终状态
-      if: always()
-      timeout-minutes: 2
-      uses: ./.github/actions/runner-checkpoint
-      with:
-        stage: compile-${{ strategy.job-index }}-final
