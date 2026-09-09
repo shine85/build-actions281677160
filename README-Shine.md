@@ -70,29 +70,41 @@ CONFIG_FILE="x86_64 x86_64_250"
 - 阶段一补进 `${CONFIG_TXT}`（`@trigger` 会把它拷成新 seed，保证仓库 seed 一直带着）
 - 阶段二补进 `.config` 并 `make defconfig`，然后核验主题、配置插件、语言包三项都为 `=y`，缺任一 `exit 1` 让编译当场失败，不静默放过
 
-## 四、相对上游改了哪些文件
+### 手动和定时双配置实测（2026-09-09）
+
+- **手动选择单配置**：下拉框选 `x86_64` 或 `x86_64_250`，`tools/immortalwrt-config.sh matrix` 输出 `configs=["x86_64"]` 或 `["x86_64_250"]`，只编译选中的那个。
+- **定时双配置**：周五 22:05 UTC（周六北京时间 06:05），`INPUT_CONFIG` 为空，脚本读取 `CONFIG_FILE="x86_64 x86_64_250"`，输出 `configs=["x86_64","x86_64_250"]`，两个配置并行编译（`max-parallel: 1` 保证准备阶段串行，防止覆盖 seed）。
+- run #34344193695（`ac37582` 提交）成功，kucat 三包核验通过，固件正常产出。
+
+
+## 四、相对上游改了哪些文件（含双配置定时与单网段切换）
+
+**核心需求**：能手动选择 `x86_64` 或 `x86_64_250` 任一配置，也能定时自动编译两个配置；编译带 kucat 主题+配置插件并设为默认主题。
 
 新增：
 
-- `build/Immortalwrt/diy-part-250.sh` — 250 网段 diy 配置
+- `build/Immortalwrt/diy-part-250.sh` — 250 网段 diy 配置（`192.168.250.2`）
 - `build/Immortalwrt/seed/x86_64_250` — 250 机型 seed
-- `tools/immortalwrt-config.sh` — 矩阵生成、单配置准备、长期配置还原和 DIY 选择的统一实现
+- `tools/immortalwrt-config.sh` — 矩阵生成、单配置准备、长期配置还原和 DIY 选择的统一实现（4 个命令：`matrix`/`prepare`/`restore`/`select`）
 - `tools/apply-custom-steps.sh` — 同步上游后维护两个 workflow 的自定义结构
 - `.github/workflows/clean-workflow.yml`、`keepalive.yml` — 自建
 - `README-Shine.md` — 本文件
 
-改动（同步上游后要逐项补回）：
+改动（**同步上游后要逐项补回，缺一不可**）：
 
-| 文件 | 加了什么 |
+| 文件 | 加了什么（按重要性排序） |
 |---|---|
-| `Immortalwrt.yml` | 保留 `x86_64_250` 和 `openwrt-25.12` 下拉选项；新增 `plan`、动态 matrix、同分支并发控制与 `max-parallel: 1`；准备时 checkout 最新分支；`@mishi` 前后调用 `prepare` / `restore`；保留 `@need` 后的 kucat 补回步骤 |
-| `compile.yml` | 显式 checkout `github.sha`；`@mishi` 前读取 `relevance/settings.ini` 并调用 `select`；保留 `@need` 后的 `补回kucat配置插件并核验kucat必须存在` |
-| `build/Immortalwrt/diy-part.sh` | 两个 kucat 插件源、6 网段 IP、`Mandatory_theme`/`Default_theme=kucat`、个性签名 |
-| `build/Immortalwrt/seed/x86_64` | kucat 三件套等选包 |
-| `build/Immortalwrt/settings.ini` | 自己的编译参数；`CONFIG_FILE="x86_64 x86_64_250"` 作为默认长期定时列表，也支持只填一个 |
-| `.github/workflows/Mt798x.yml` | 只是默认机型/通知/cron 的默认值，与上面无关 |
+| `Immortalwrt.yml` | ① 新增 `plan` job（读取 `CONFIG_FILE` 生成 matrix）和动态 matrix 结构；② `concurrency` 同分支并发控制与 `max-parallel: 1`；③ 每个配置准备时 checkout 最新分支（`ref: ${{ github.ref }}`）；④ `@mishi` 前调用 `tools/immortalwrt-config.sh prepare`（临时单配置+选 DIY）；⑤ `@mishi` 后调用 `restore`（还原长期配置与原版 DIY）；⑥ `@need` 后的 kucat 补回步骤；⑦ 下拉保留 `x86_64_250` 和 `openwrt-25.12` 选项；⑧ 个人 `cron: 05 22 * * 5`、`INFORMATION_NOTICE: Telegram`、`KEEP_*: 30` |
+| `compile.yml` | ① 显式 checkout `github.sha`（防阶段二读到新提交）；② `@mishi` 前调用 `select`（按 `relevance/settings.ini` 单配置选 DIY，缺脚本即失败）；③ `@need` 后的 `补回kucat配置插件并核验kucat必须存在`（三项齐全否则 `exit 1`） |
+| `build/Immortalwrt/diy-part.sh` | 两个 kucat 插件源（`git clone`）、6 网段 IP（`192.168.6.2`）、`Mandatory_theme=kucat`、`Default_theme=kucat`、个性签名（`Op_name="Op-Shine"`） |
+| `build/Immortalwrt/seed/x86_64` | kucat 三件套（`luci-theme-kucat`、`luci-app-kucat-config`、`luci-i18n-kucat-config-zh-cn`）等选包 |
+| `build/Immortalwrt/settings.ini` | `CONFIG_FILE="x86_64 x86_64_250"` 作为默认长期定时列表（空格分隔，支持只填一个）；其他编译参数（`SOURCE_CODE`、`REPO_BRANCH`、通知开关等） |
+| `.github/workflows/Mt798x.yml` | 只是默认机型/通知/cron 的默认值，与双配置逻辑无关 |
+
+**关键依赖**：`Immortalwrt.yml` 的 7 处改动缺一项编译都会挂（尤其是 ①②③④⑤，它们构成双配置调度的完整链路）；`compile.yml` 的 ①② 缺了会读错提交或找不到 DIY 脚本。
 
 `build/Immortalwrt/relevance/` 下的 `settings.ini` 和 `start` 是 CI 自动生成的，不手工修改；这里的 `CONFIG_FILE` 只记录该次单配置，不是长期定时列表。
+
 
 ## 五、同步上游代码：会不会覆盖我的改动
 
@@ -197,6 +209,16 @@ git commit
 4. `compile.yml` 显式 checkout `github.sha`，按该提交的 `relevance/settings.ini` 调用 `select`；250 脚本缺失时必须报错，不能静默回落。
 5. 原有 `补回kucat...` 仍在 `@need` **之后**、`下载软件包` 之前；两个 workflow 都能被 `npx --yes js-yaml` 解析。
 6. `CONFIG_FILE` 长期列表、`openwrt-25.12` 下拉选项、通知与保留数按需保留；cron 仍为 `05 22 * * 5`，即北京时间每周六 06:05。
+
+### 典型失误案例：批量删除诊断步骤时误删关键步骤（2026-09-09）
+
+**背景**：添加了 15 个诊断步骤用于排查 runner 失联，后续删除时用 `sed '/^    - name: 诊断-/,/^$/d'` 批量匹配"从诊断步骤到下一个空行"。
+
+**失误**：诊断步骤后紧跟 `下载源码`，中间无空行，导致连同 `下载源码` 和 `公告` 也被删掉。症状是 `@need` 启动时 `$HOME_PATH` 目录不存在，直接报 `No such file or directory` 失败（run #34336441555）。
+
+**正确做法**：逐个精确删除，每个诊断步骤固定 4-5 行（`- name: 诊断-xxx` / `timeout-minutes` / `uses: ./.github/actions/runner-checkpoint` / `with:` / `stage:`），用完整块匹配而非贪婪范围匹配。或先用 `git diff --stat` 确认删除影响，再用 `git show HEAD:文件 | grep -n "下载\|公告"` 核对关键步骤是否还在。
+
+**教训**：批量修改 workflow 后必须检查 `下载源码`、`@mishi`、`@need`、`@trigger` 这 4 个关键 action 是否都在；单靠 YAML 语法检查发现不了步骤被删。
 
 
 ## 六、已知的坑
