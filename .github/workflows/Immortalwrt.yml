@@ -129,6 +129,12 @@ jobs:
       with:
         ref: ${{ github.ref_name }}
 
+    - name: 诊断-入口初始状态
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-checkout
+
     - name: 选择本次编译使用的diy脚本
       env:
         PICK_CONFIG: ${{ matrix.config_file }}
@@ -136,6 +142,12 @@ jobs:
       
     - name: 检测密匙/文件/版本
       uses: 281677160/common@mishi
+
+    - name: 诊断-入口密匙检测后
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-after-mishi
 
     - name: 还原长期配置和diy脚本
       run: bash tools/immortalwrt-config.sh restore
@@ -149,6 +161,12 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /${{ env.DIY_WORK }}
         sudo chown $USER:$GROUPS /${{ env.DIY_WORK }}
+
+    - name: 诊断-入口环境部署后
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-after-deploy
     
     - name: 下载"${{ matrix.target }}-${{ inputs.REPO_BRANCH }}"源码
       working-directory: /${{ env.DIY_WORK }}
@@ -162,9 +180,21 @@ jobs:
       continue-on-error: true
       uses: 281677160/common@message
  
+    - name: 诊断-入口自定义处理前
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-before-need
+
     - name: 运行其他和SSH远程(make menuconfig)
       id: info
       uses: 281677160/common@need
+
+    - name: 诊断-入口自定义处理后
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-after-need
 
     - name: 补回kucat配置插件到即将写入seed的配置
       run: |
@@ -200,6 +230,19 @@ jobs:
         repo: ${{ github.repository }}
         gh_token: ${{ secrets.REPO_TOKEN }}
         
+    - name: 诊断-触发编译前
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-before-trigger
+
     - name: 触发启动"${{ matrix.target }}"开始编译
       if: steps.info.outcome == 'success'
       uses: 281677160/common@trigger
+
+    - name: 诊断-入口最终状态
+      if: always()
+      timeout-minutes: 2
+      uses: ./.github/actions/runner-checkpoint
+      with:
+        stage: entry-${{ strategy.job-index }}-final

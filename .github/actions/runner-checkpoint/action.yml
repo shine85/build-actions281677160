@@ -1,0 +1,36 @@
+name: Runner 阶段采样
+description: 保存当前阶段的脱敏 runner 状态与日志摘要
+inputs:
+  stage:
+    description: 当前 job 内唯一的诊断阶段名
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: 采集阶段状态
+      if: always()
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+      env:
+        DIAGNOSTIC_STAGE: ${{ inputs.stage }}
+      with:
+        script: |
+          const path = require('node:path');
+          const {execFileSync} = require('node:child_process');
+          execFileSync(process.execPath, [
+            path.join(process.env.GITHUB_WORKSPACE, 'tools', 'runner-diagnostics.cjs'),
+            process.env.DIAGNOSTIC_STAGE,
+            path.join(process.env.RUNNER_TEMP, 'runner-diagnostics'),
+          ], {
+            cwd: process.env.GITHUB_WORKSPACE,
+            stdio: 'inherit',
+            timeout: 15000,
+          });
+
+    - name: 独立保存阶段证据
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: runner-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
+        path: ${{ runner.temp }}/runner-diagnostics/${{ inputs.stage }}.json
+        if-no-files-found: error
+        retention-days: 3
