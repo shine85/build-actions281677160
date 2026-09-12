@@ -4,7 +4,7 @@
 本文件只记录**本仓库相对上游改了什么**、**为什么这么改**、**同步上游后怎么补回来**。
 上游没有同名文件，`git merge upstream/main` 时本文件不会冲突。
 
-最后更新：2026-09-12
+最后更新：2026-09-13
 
 ---
 
@@ -87,8 +87,8 @@ CONFIG_FILE="x86_64 x86_64_250"
 
 | 配置 | 更新通道 | 固件内更新匹配标识 |
 |---|---|---|
-| `x86_64` | `Update-x86-x86_64` | `x86-64-x86_64` |
-| `x86_64_250` | `Update-x86-x86_64_250` | `x86-64-x86_64_250` |
+| `x86_64` | [Update-x86-x86_64](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64) | `x86-64-x86_64` |
+| `x86_64_250` | [Update-x86-x86_64_250](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64_250) | `x86-64-x86_64_250` |
 
 Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件仍指向原来的 `Update-x86` 共用通道，无法自行判断网段；首次迁移须手动选择对应新版，升级后核对 `/etc/openwrt_update` 的 `RELEASE_DOWNLOAD` 已指向对应新通道。此修复不会改写已经安装的旧固件。
 
@@ -106,7 +106,20 @@ bash tools/apply-custom-steps.sh --check
 actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 ```
 
-9 月 12 日旧版定时入口 `34659837575` 已真实完成两套编译，IP 和 kucat 三包经产物解包核对；上面的修复已通过本地回归，尚需新一轮 GitHub Actions 构建验收，实机启动未验证。cron 仍为北京时间每周六 06:05；[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)明确定时事件可能延迟或丢弃，仓库配置不能保证精确到点，本次旧版实际在 07:55 触发。
+9 月 12 日旧版定时入口 `34659837575` 已真实完成两套编译。新修复的完整实跑结果见下方；实机启动未验证。cron 仍为北京时间每周六 06:05；[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)明确定时事件可能延迟或丢弃，仓库配置不能保证精确到点，9 月 12 日旧版实际在 07:55 触发。
+
+### 完整实跑验收（2026-09-13）
+
+修复提交 `a15074d` 已推送，只触发一次关闭通知的“双配置测试”。[准备入口 #150](https://github.com/shine85/build-actions281677160/actions/runs/34702805888) 与两套独立编译均为 `completed/success`：
+
+| 配置 | 固件默认 IP / 网关 | 独立编译 | 完成时间（北京时间） |
+|---|---|---|---|
+| `x86_64` | `192.168.6.2` / `192.168.6.1` | [#149](https://github.com/shine85/build-actions281677160/actions/runs/34703045031) | 9 月 13 日 00:32 |
+| `x86_64_250` | `192.168.250.2` / `192.168.250.1` | [#150](https://github.com/shine85/build-actions281677160/actions/runs/34703263236) | 9 月 13 日 00:37 |
+
+两份完整 artifact 均已下载并核对 SHA-256；解包确认 kucat 主题、配置插件、中文包及其清单文件齐全，`99-first-run` 包含默认主题设置。四个 Legacy/UEFI 发布镜像与 artifact 内文件一致，各通道 `zzz_api` 的哈希和资产记录一致；使用固件自带的实际匹配语句验证后，两个配置都只选中自身镜像。
+
+43 项本地回归通过。三份完整日志未再出现此前的清理空参数、依赖安装错误、下载 404、Mihomo 递归依赖或 make 失败记录。长期双配置列表和 6 网段原版 DIY 保持，通知仅在本次验收关闭。
 
 
 ## 四、相对上游改了哪些文件（含双配置定时与单网段切换）
@@ -269,4 +282,4 @@ git commit
 6. **缺少 250 DIY 不是可以回落的情况。** 选择 `_250` 配置而缺少 `diy-part-250.sh` 必须失败，否则会把 250 配置错误编译成 6 网段。
 7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
 
-验证边界：双配置定时已在 2026-09-12 的旧版 CI 运行中验证；新的更新通道、清理和依赖修复目前通过本地回归，仍需两套新固件的实际 CI 结果。旧固件的在线更新通道不会被仓库代码自动迁移。
+验证边界：新版已通过两套固件的完整 CI、实物解包和更新选择验证，尚未进行实机刷写/启动。旧固件的在线更新通道不会被仓库代码自动迁移，首次升级须手动选择对应新版并核对新通道。
