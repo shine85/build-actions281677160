@@ -1,0 +1,114 @@
+diff --git a/upgrade.sh b/upgrade.sh
+--- a/upgrade.sh
++++ b/upgrade.sh
+@@ -18,7 +18,7 @@ function Diy_Part1() {
+ 
+ 
+ function Diy_Part2() {
+-	export UPDATE_TAG="Update-${TARGET_BOARD}"
++	export UPDATE_TAG="Update-${TARGET_BOARD}-${CONFIG_FILE:?缺少本次编译配置}"
+ 	export FILESETC_UPDATE="${HOME_PATH}/package/base-files/files/etc/openwrt_update"
+ 	export GITHUB_PROXY="https://ghfast.top"
+ 	export RELEASE_DOWNLOAD="\$GITHUB_LINK/releases/download/${UPDATE_TAG}"
+@@ -40,6 +40,7 @@ function Diy_Part2() {
+ 	else
+ 		export TARGET_PROFILE_ER="${TARGET_PROFILE}"
+ 	fi
++	export TARGET_PROFILE_ER="${TARGET_PROFILE_ER}-${CONFIG_FILE}"
+ 	
+ 	case "${TARGET_BOARD}" in
+ 	ramips | reltek | ath* | ipq* | bmips | kirkwood | mediatek |bcm4908 |gemini |lantiq |layerscape |qualcommax |qualcommbe |siflower |silicon)
+@@ -152,7 +153,8 @@ function Diy_Part3() {
+ 		  		cp -Rf "${EFI_ZHONGZHUAN}" "${BIN_PATH}/${AUTOBUILD_FIRMWARE_UEFI}-${EFIMD5}${FIRMWARE_SUFFIX}"
+       				echo "BOOT_UEFI=\"uefi\"" >> "${GITHUB_WORKSPACE}/del_assets"
+ 			else
+-				echo "没找到在线升级可用的efi${FIRMWARE_SUFFIX}格式固件"
++				echo "没找到在线升级可用的efi${FIRMWARE_SUFFIX}格式固件" >&2
++				return 1
+ 			fi
+ 		fi
+   		
+@@ -162,10 +164,12 @@ function Diy_Part3() {
+    				MD5="$(md5sum ${UP_ZHONGZHUAN} | cut -c1-3)$(sha256sum ${UP_ZHONGZHUAN} | cut -c1-3)"
+ 				cp -Rf "${UP_ZHONGZHUAN}" "${BIN_PATH}/${AUTOBUILD_FIRMWARE}-${MD5}${FIRMWARE_SUFFIX}"
+ 			else
+-				echo "没找到在线升级可用的${FIRMWARE_SUFFIX}格式固件"
++				echo "没找到在线升级可用的${FIRMWARE_SUFFIX}格式固件" >&2
++				return 1
+ 			fi
+ 		else
+-			echo "没有squashfs格式固件"
++			echo "没有squashfs格式固件" >&2
++				return 1
+ 		fi
+ 	;;
+ 	*)
+@@ -178,11 +182,15 @@ function Diy_Part3() {
+       		elif [[ -n "$(ls -1 | grep -E 'sdcard')" ]]; then
+ 			UP_ZHONGZHUAN="$(ls -1 |grep -Eo ".*${TARGET_PROFILE}.*sdcard.*${FIRMWARE_SUFFIX}" |grep -v ".vm\|.vb\|.vh\|.qco\|efi\|ext4\|root\|factory\|kernel")"
+    		else
+-     			echo "没找到在线升级可用的${FIRMWARE_SUFFIX}格式固件，或者没适配该机型"
++     			echo "没找到在线升级可用的${FIRMWARE_SUFFIX}格式固件，或者没适配该机型" >&2
++				return 1
+ 		fi
+ 		if [[ -f "${UP_ZHONGZHUAN}" ]]; then
+    			MD5="$(md5sum ${UP_ZHONGZHUAN} | cut -c1-3)$(sha256sum ${UP_ZHONGZHUAN} | cut -c1-3)"
+ 			cp -Rf "${UP_ZHONGZHUAN}" "${BIN_PATH}/${AUTOBUILD_FIRMWARE}-${MD5}${FIRMWARE_SUFFIX}"
++		else
++			echo "缺少可发布的镜像文件" >&2
++			return 1
+ 		fi
+ 	;;
+ 	esac
+diff --git a/custom/ubuntu.sh b/custom/ubuntu.sh
+--- a/custom/ubuntu.sh
++++ b/custom/ubuntu.sh
+@@ -17,7 +17,7 @@ bzip2 ccache cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-mul
+ genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
+ libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
+ libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full patch pkgconf \
+-python2 python3 python3-pip python3-cryptography python3-docutils python3-ply python3-pyelftools python3-requests
++python2 python3 python3-pip python3-cryptography python3-docutils python3-ply python3-pyelftools python3-requests \
+ python3-setuptools python3-distutils python3-netifaces qemu-utils rsync scons squashfs-tools subversion swig \
+ texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+ 
+@@ -27,7 +27,6 @@ apt-get install -y libfuse-dev
+ # N1打包需要的依赖
+ apt-get install -y rename pigz clang gnupg snapd
+ snap install jq
+-apt-get install -y $(curl -fsSL https://tinyurl.com/ubuntu2204-make-openwrt)
+ 
+ # 安装gcc g++
+ GCC_VERSION="13"
+@@ -54,7 +53,8 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+ apt-get install -y nodejs
+ curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/yarnkey.gpg
+ echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+-apt-get update -y && apt-get install -y yarn gh
++apt-get update -y
++apt-get install -y yarn gh
+ 
+ cd $TMP_DIR
+ # 安装UPX
+diff --git a/common.sh b/common.sh
+--- a/common.sh
++++ b/common.sh
+@@ -272,7 +272,7 @@ fi
+ 
+ # files大法，设置固件无烦恼
+ if [ -d "${BUILD_PATCHES}" ]; then
+-  find "${BUILD_PATCHES}" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "cat '%'  | patch -d './' -p1 --forward --no-backup-if-mismatch"
++  find "${BUILD_PATCHES}" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "cat '%'  | patch -d './' -p1 --forward --no-backup-if-mismatch" || exit 1
+ fi
+ if [ -d "${BUILD_DIY}" ]; then
+   cp -Rf ${BUILD_DIY}/* ${HOME_PATH}
+@@ -1279,7 +1279,8 @@ function Diy_firmware() {
+ # 远程更新处理固件
+ if [ "${UPDATE_FIRMWARE_ONLINE}" == "true" ]; then
+   cd ${HOME_PATH}
+-  source $UPGRADE_SH && Diy_Part3
++  source "$UPGRADE_SH"
++  Diy_Part3
+ fi
+ # 编译完毕后,整理固件
+ cd ${FIRMWARE_PATH}

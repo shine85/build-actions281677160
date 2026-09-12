@@ -1,0 +1,62 @@
+--- a/scripts/package-metadata.pl
++++ b/scripts/package-metadata.pl
+@@ -142,6 +142,20 @@ sub package_depends($$) {
+ 	return $ret;
+ }
+ 
++sub mconf_provider_order {
++	my $providers = shift;
++	my @ordered;
++	foreach my $provider (@$providers) {
++		next if $provider->{buildonly};
++		if ($provider->{variant_default}) {
++			unshift @ordered, $provider->{name};
++		} else {
++			push @ordered, $provider->{name};
++		}
++	}
++	return @ordered;
++}
++
+ sub mconf_depends {
+ 	my $pkgname = shift;
+ 	my $depends = shift;
+@@ -181,16 +195,7 @@ sub mconf_depends {
+ 		if ($flags =~ /\+/) {
+ 			my $vdep = $vpackage{$depend};
+ 			if ($vdep) {
+-				my @vdeps;
+-
+-				foreach my $v (@$vdep) {
+-					next if $v->{buildonly};
+-					if ($v->{variant_default}) {
+-						unshift @vdeps, $v->{name};
+-					} else {
+-						push @vdeps, $v->{name};
+-					}
+-				}
++				my @vdeps = mconf_provider_order($vdep);
+ 
+ 				$depend = shift @vdeps;
+ 
+@@ -250,6 +255,20 @@ sub mconf_conflicts {
+ 
+ 	foreach my $depend (@$depends) {
+ 		next unless $package{$depend};
++		if ($package{$depend}->{conflicts}
++			&& grep { $_ eq $pkgname } @{$package{$depend}->{conflicts}}) {
++			my @order = sort ($pkgname, $depend);
++			# 与虚包 select 共用 provider 顺序，避免条件选择再形成反向依赖。
++			foreach my $virtual (sort @{$package{$pkgname}->{provides} || []}) {
++				next unless $vpackage{$virtual};
++				my @pair = grep { $_ eq $pkgname || $_ eq $depend }
++					mconf_provider_order($vpackage{$virtual});
++				next unless @pair == 2;
++				@order = @pair;
++				last;
++			}
++			next if $pkgname ne $order[0];
++		}
+ 		$res .= "\t\tdepends on m || (PACKAGE_$depend != y)\n";
+ 	}
+ 	return $res;

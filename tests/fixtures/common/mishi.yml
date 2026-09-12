@@ -1,0 +1,152 @@
+name: 'My Composite Action'
+description: 'Combines multiple steps'
+runs:
+  using: "composite"
+  steps:
+    - name: 密匙检测
+      shell: bash
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        if [[ -z "${{ env.REPO_TOKEN }}" ]]; then
+           echo -e "\033[31m 您没有设置仓库密匙，请按教程设置好密匙再来 \033[0m\n"
+           echo -e "\033[32m REPO_TOKEN密匙制作教程：https://git.io/jm.md \033[0m\n"
+           exit 1
+        fi
+        [[ -d "mishi" ]] && rm -rf mishi
+        git clone --depth=1 -b "${{ github.ref_name }}" https://user:${{ env.REPO_TOKEN }}@github.com/${{github.repository}}.git mishi
+        if [ -z "$(ls -1 mishi)" ]; then
+           echo -e "\033[31m 您的密匙错误或已过期，或制作的时候勾选不正确，请按教程设置好密匙再来 \033[0m\n"
+           echo -e "\033[32m REPO_TOKEN密匙制作教程：https://git.io/jm.md \033[0m\n"
+           exit 1
+        fi
+        [[ -d "mishi" ]] && rm -rf mishi
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --global user.name "github-actions[bot]"
+        echo "BENDI_VERSION=2" >> ${GITHUB_ENV}
+
+    - name: 判断启动方式和变量
+      shell: bash
+      run: |
+        cd ${GITHUB_WORKSPACE}
+        
+        if [[ -d "build" ]]; then
+           rm -rf operates
+           cp -Rf build ${GITHUB_WORKSPACE}/operates
+           COMPILE_PATH="$GITHUB_WORKSPACE/operates/${FOLDER_NAME}"
+        fi
+        
+        if [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.event.head_commit }}" != "null" ]]; then
+          #触发启动
+           if [[ -f "${COMPILE_PATH}/relevance/settings.ini" ]]; then
+              source ${COMPILE_PATH}/relevance/settings.ini
+              echo "ERRUN_NUMBER=${ERRUN_NUMBER}" >> ${GITHUB_ENV}
+           fi
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+           #手动启动
+           if [ -f "${COMPILE_PATH}/settings.ini" ]; then
+              SOURCE_CODE="$(grep '^SOURCE_CODE=' "${COMPILE_PATH}/settings.ini" | awk -F'"' '{print $2}')"
+              COMPILATION_INFORMATION="$(grep '^COMPILATION_INFORMATION=' "${COMPILE_PATH}/settings.ini" | awk -F'"' '{print $2}')"
+           fi
+           REPO_BRANCH="${{ github.event.inputs.REPO_BRANCH }}"
+           CONFIG_FILE="${{ github.event.inputs.CONFIG_FILE }}"
+           INFORMATION_NOTICE="${{ github.event.inputs.INFORMATION_NOTICE }}"
+           KEEP_WORKFLOWS="${{ github.event.inputs.KEEP_WORKFLOWS }}"
+           KEEP_RELEASES="${{ github.event.inputs.KEEP_RELEASES }}"
+           SSH_ACTION="${{ github.event.inputs.SSH_ACTION }}"
+           UPLOAD_FIRMWARE="${{ github.event.inputs.UPLOAD_FIRMWARE }}"
+           UPLOAD_RELEASE="${{ github.event.inputs.UPLOAD_RELEASE }}"
+           CACHEWRTBUILD_SWITCH="${{ github.event.inputs.CACHEWRTBUILD_SWITCH }}"
+           UPDATE_FIRMWARE_ONLINE="${{ github.event.inputs.UPDATE_FIRMWARE_ONLINE }}"
+        else
+           #其他启动
+           if [[ -f "${COMPILE_PATH}/settings.ini" ]]; then
+              source ${COMPILE_PATH}/settings.ini
+           fi
+        fi
+        
+        echo "SOURCE_CODE=${SOURCE_CODE}" >> ${GITHUB_ENV}
+        echo "REPO_BRANCH=${REPO_BRANCH}" >> ${GITHUB_ENV}
+        echo "INFORMATION_NOTICE=${INFORMATION_NOTICE}" >> ${GITHUB_ENV}
+        echo "KEEP_WORKFLOWS=${KEEP_WORKFLOWS}" >> ${GITHUB_ENV}
+        echo "KEEP_RELEASES=${KEEP_RELEASES}" >> ${GITHUB_ENV}
+        echo "SSH_ACTION=${SSH_ACTION}" >> ${GITHUB_ENV}
+        echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE}" >> ${GITHUB_ENV}
+        echo "UPLOAD_RELEASE=${UPLOAD_RELEASE}" >> ${GITHUB_ENV}
+        echo "CACHEWRTBUILD_SWITCH=${CACHEWRTBUILD_SWITCH}" >> ${GITHUB_ENV}
+        echo "UPDATE_FIRMWARE_ONLINE=${UPDATE_FIRMWARE_ONLINE}" >> ${GITHUB_ENV}
+        echo "GITHUB_LINK=https://github.com/${{github.repository}}" >> ${GITHUB_ENV}
+        echo "GIT_ACTOR=${{github.actor}}" >> ${GITHUB_ENV}
+        echo "WAREHOUSE_MAN=${GIT_REPOSITORY##*/}" >> ${GITHUB_ENV}
+        echo "RUN_NUMBER=${{github.run_number}}" >> ${GITHUB_ENV}
+        echo "GIT_REFNAME=${{ github.ref_name }}" >> ${GITHUB_ENV}
+        echo "COMPILATION_INFORMATION=${COMPILATION_INFORMATION}" >> ${GITHUB_ENV}
+        echo "CONFIG_FILE=${CONFIG_FILE}" >> ${GITHUB_ENV}
+
+        echo "HOME_PATH=$GITHUB_WORKSPACE/openwrt" >> ${GITHUB_ENV}
+        echo "OPERATES_PATH=$GITHUB_WORKSPACE/operates" >> ${GITHUB_ENV}
+        echo "COMPILE_PATH=${COMPILE_PATH}" >> ${GITHUB_ENV}
+        echo "BUILD_DIY=${COMPILE_PATH}/diy" >> ${GITHUB_ENV}
+        echo "BUILD_FILES=${COMPILE_PATH}/files" >> ${GITHUB_ENV}
+        echo "BUILD_PATCHES=${COMPILE_PATH}/patches" >> ${GITHUB_ENV}
+        echo "BUILD_PARTSH=${COMPILE_PATH}/diy-part.sh" >> ${GITHUB_ENV}
+        echo "BUILD_SETTINGS=${COMPILE_PATH}/settings.ini" >> ${GITHUB_ENV}
+        echo "MYCONFIG_FILE=${COMPILE_PATH}/seed/${CONFIG_FILE}" >> ${GITHUB_ENV}
+
+    - name: 整理缓存和通知的变量
+      shell: bash
+      run: |
+        cd ${GITHUB_WORKSPACE}
+        case "${{ env.CACHEWRTBUILD_SWITCH }}" in
+          *"false"*)
+            echo "CACHEWRTBUILD_SWITCH=true" >> "$GITHUB_ENV"
+            echo "CLEAR_CACHEWRTBUILD=true" >> "$GITHUB_ENV"
+            ;;
+          *)
+            echo "CACHEWRTBUILD_SWITCH=true" >> "$GITHUB_ENV"
+            ;;
+        esac
+        
+        case "${{ env.INFORMATION_NOTICE }}" in
+          *"tg"*|*"TG"*|*"telegram"*|*"Telegram"*)
+            echo "INFORMATION_NOTICE=TG" >> "$GITHUB_ENV"
+            ;;
+          *"push"*|*"PUSH"*|*"pushplus"*|*"Pushplus"*)
+            echo "INFORMATION_NOTICE=PUSH" >> "$GITHUB_ENV"
+            ;;
+          *)
+            echo "INFORMATION_NOTICE=false" >> "$GITHUB_ENV"
+            ;;
+        esac
+
+    - name: 检查编译脚本和对比版本号
+      shell: bash
+      run: |
+        cd ${GITHUB_WORKSPACE}
+        LINSHI_COMMON="/tmp/common"
+        [ -d "${LINSHI_COMMON}" ] && rm -rf "${LINSHI_COMMON}"
+        if ! git clone -q --single-branch --depth=1 --branch=main https://github.com/281677160/common "${LINSHI_COMMON}"; then
+            git clone --depth=1 https://github.com/281677160/common "${LINSHI_COMMON}"
+        fi
+        if [ -f "${LINSHI_COMMON}/custom/first.sh" ] && grep -qE "bash" "${LINSHI_COMMON}/custom/first.sh"; then
+           chmod -R +x "${LINSHI_COMMON}"
+           source "${LINSHI_COMMON}/custom/first.sh"
+        else
+           echo -e "\033[31m 对比版本号文件下载失败，请检查网络再来 \033[0m\n"
+           exit 1
+        fi
+        
+    - name: 运行其他变量
+      shell: bash
+      run: |
+        cd ${GITHUB_WORKSPACE}
+        if [ -f "${COMMON_SH}" ] && grep -qE "bash" "${COMMON_SH}"; then
+           chmod +x "${COMMON_SH}"
+           bash $COMMON_SH Diy_menu6
+        else
+           echo -e "\033[31m 对比版本号文件下载失败，请检查网络再来 \033[0m\n"
+           exit 1
+        fi
+        
+branding:
+  icon: "terminal"
+  color: "gray-dark"

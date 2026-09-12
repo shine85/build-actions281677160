@@ -1,0 +1,49 @@
+name: 发布按配置隔离的 ImmortalWrt 固件
+description: 上传失败必须报错，验证全部固件后再更新在线索引
+runs:
+  using: composite
+  steps:
+    - name: 清理同配置的旧固件
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      with:
+        github-token: ${{ env.REPO_TOKEN }}
+        script: |
+          const release = require(process.env.GITHUB_WORKSPACE + '/tools/immortalwrt-release.cjs');
+          await release.cleanup({ github, context, core });
+
+    - name: 上传在线更新固件
+      uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
+      with:
+        name: AutoUpdate-${{ env.TARGET_BOARD }}
+        tag: ${{ env.UPDATE_TAG }}
+        token: ${{ env.REPO_TOKEN }}
+        allowUpdates: true
+        artifactErrorsFailBuild: true
+        body: ${{ env.TONGZHI_DATE }}
+        artifacts: ${{ env.BIN_PATH }}/*
+
+    - name: 核验固件并生成更新索引
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      with:
+        github-token: ${{ env.REPO_TOKEN }}
+        script: |
+          const writeReleaseIndex = require(process.env.GITHUB_WORKSPACE + '/tools/immortalwrt-release.cjs');
+          await writeReleaseIndex({ github, context, core });
+
+    - name: 上传已核验的更新索引
+      uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
+      with:
+        name: AutoUpdate-${{ env.TARGET_BOARD }}
+        tag: ${{ env.UPDATE_TAG }}
+        token: ${{ env.REPO_TOKEN }}
+        allowUpdates: true
+        artifactErrorsFailBuild: true
+        replacesArtifacts: true
+        artifacts: ${{ env.AUTO_API }}
+        body: ${{ env.TONGZHI_DATE }}
+
+    - name: 记录发布成功
+      shell: bash
+      run: |
+        echo "YUNDUAN_API=true" >> "$GITHUB_ENV"
+        echo "YUNDUAN_MESSAGE=、发送云端固件" >> "$GITHUB_ENV"

@@ -17,7 +17,8 @@ CHECK=0
 
 W1=".github/workflows/Immortalwrt.yml"
 W2=".github/workflows/compile.yml"
-ANCHOR_MISHI="      uses: 281677160/common@mishi"
+ANCHOR_MISHI="      uses: ./.github/actions/immortalwrt-mishi"
+MISHI_CONFIG='        config_file: ${{ matrix.config_file }}'
 ANCHOR_NEED="      uses: 281677160/common@need"
 
 TMPD=''
@@ -89,6 +90,39 @@ frag_restore(){ cat > "$TMPD/f" <<'FRAG'
 FRAG
 }
 
+frag_prepare_common(){ cat > "$TMPD/f" <<'FRAG'
+
+    - name: 应用上游编译修复
+      run: bash tools/prepare-immortalwrt.sh
+FRAG
+}
+
+frag_mishi_stage1(){ cat > "$TMPD/f" <<'FRAG'
+      uses: ./.github/actions/immortalwrt-mishi
+      with:
+        config_file: ${{ matrix.config_file }}
+FRAG
+}
+
+frag_mishi_stage2(){
+  printf '%s\n' "$ANCHOR_MISHI" > "$TMPD/f"
+}
+
+frag_deploy_command(){ cat > "$TMPD/f" <<'FRAG'
+        export TMP_DIR="${RUNNER_TEMP}/immortalwrt-dependencies"
+        mkdir -p "$TMP_DIR"
+        sudo --preserve-env=DEBIAN_FRONTEND,TMP_DIR bash -e -o pipefail "${LINSHI_COMMON}/custom/ubuntu.sh"
+FRAG
+}
+
+frag_firmware_command(){
+  printf '%s\n' '        bash -e "${COMMON_SH}" Diy_firmware' > "$TMPD/f"
+}
+
+frag_release_action(){
+  printf '%s\n' '      uses: ./.github/actions/immortalwrt-release' > "$TMPD/f"
+}
+
 frag_kucat_stage1(){ cat > "$TMPD/f" <<'FRAG'
 
     - name: 补回kucat配置插件到即将写入seed的配置
@@ -123,7 +157,7 @@ frag_kucat_stage2(){ cat > "$TMPD/f" <<'FRAG'
            sed -i "/^# CONFIG_PACKAGE_${P} is not set$/d" .config
            grep -q "^CONFIG_PACKAGE_${P}=y$" .config || echo "CONFIG_PACKAGE_${P}=y" >> .config
         done
-        make defconfig > /dev/null 2>&1
+        make defconfig
         MISS=""
         for P in luci-theme-kucat luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
            if grep -q "^CONFIG_PACKAGE_${P}=y$" .config; then
@@ -175,6 +209,50 @@ insert_step(){
   insert_block "$1" "    - name: $2" "$3" "$4"
 }
 
+ensure_strict_step(){
+  local file="$1" name="$2" marker="    - name: $2"
+  if ! grep -qxF "$marker" "$file"; then
+    printf '  步骤不存在! %s %s\n' "$name" "${file##*/}"; BROKEN=$((BROKEN+1)); return
+  fi
+  if ! awk -v marker="$marker" '
+    /^    - name:/ {active=($0==marker)}
+    active && /^      continue-on-error:/ {found=1}
+    END {exit !found}
+  ' "$file"; then
+    printf '  已严格传播失败  %s\n' "$name"; return
+  fi
+  if [[ "$CHECK" == 1 ]]; then
+    printf '  仍忽略失败! %s\n' "$name"; MISSING=$((MISSING+1)); return
+  fi
+  awk -v marker="$marker" '
+    /^    - name:/ {active=($0==marker)}
+    active && /^      continue-on-error:/ {next}
+    {print}
+  ' "$file" > "$TMPD/workflow"
+  cat "$TMPD/workflow" > "$file" || exit 1
+  printf '  已启用失败传播  %s\n' "$name"; CHANGED=$((CHANGED+1))
+}
+
+replace_command(){
+  local file="$1" old="$2" expected="$3" generator="$4" label="$5"
+  if grep -qxF "$expected" "$file"; then
+    printf '  已使用修复后的%s\n' "$label"; return
+  fi
+  if [[ "$CHECK" == 1 ]]; then
+    printf '  缺失! 修复后的%s\n' "$label"; MISSING=$((MISSING+1)); return
+  fi
+  if ! grep -qxF "$old" "$file"; then
+    printf '  锚点没了! %s\n' "$label"; BROKEN=$((BROKEN+1)); return
+  fi
+  "$generator"
+  awk -v old="$old" -v fragment="$TMPD/f" '
+    $0==old {while ((getline line < fragment)>0) print line; next}
+    {print}
+  ' "$file" > "$TMPD/workflow"
+  cat "$TMPD/workflow" > "$file" || exit 1
+  printf '  已替换%s\n' "$label"; CHANGED=$((CHANGED+1))
+}
+
 ensure_schedule_condition(){
   local expected="    if: \${{ github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id }}"
   if grep -qxF "$expected" "$W1"; then
@@ -206,6 +284,10 @@ add_option(){ # $1=yml
 }
 
 echo "== 阶段一 ${W1##*/}"
+replace_command "$W1" '      uses: 281677160/common@mishi' "$ANCHOR_MISHI" frag_mishi_stage1 "矩阵准备动作"
+if ! grep -qxF "$MISHI_CONFIG" "$W1"; then
+  echo '  缺失! mishi 矩阵输入'; BROKEN=$((BROKEN+1))
+fi
 insert_block "$W1" 'concurrency:' '  TZ: Asia/Shanghai' frag_concurrency all
 insert_block "$W1" '  plan:' 'jobs:' frag_plan all
 insert_block "$W1" '    needs: plan' '  build:' frag_needs
@@ -215,17 +297,34 @@ insert_block "$W1" '        ref: ${{ github.ref_name }}' '      uses: actions/ch
 ensure_schedule_condition
 add_option     "$W1"
 insert_step    "$W1" "选择本次编译使用的diy脚本"              '        ref: ${{ github.ref_name }}' frag_pick_stage1
-insert_step    "$W1" "还原长期配置和diy脚本"                   "$ANCHOR_MISHI"    frag_restore
+insert_step    "$W1" "还原长期配置和diy脚本"                   "$MISHI_CONFIG"    frag_restore
+insert_step    "$W1" "应用上游编译修复" '      run: bash tools/immortalwrt-config.sh restore' frag_prepare_common
 insert_step    "$W1" "补回kucat配置插件到即将写入seed的配置"   "$ANCHOR_NEED"     frag_kucat_stage1
+ensure_strict_step "$W1" "清理releases和workflows"
 
 echo "== 阶段二 ${W2##*/}"
+replace_command "$W2" '      uses: 281677160/common@mishi' "$ANCHOR_MISHI" frag_mishi_stage2 "准备动作"
 insert_block "$W2" '        ref: ${{ github.sha }}' '      uses: actions/checkout@v4' frag_checkout_stage2
 insert_step    "$W2" "选择本次编译使用的diy脚本"              '        ref: ${{ github.sha }}' frag_pick_stage2
+insert_step    "$W2" "应用上游编译修复" "$ANCHOR_MISHI" frag_prepare_common
 insert_step    "$W2" "补回kucat配置插件并核验kucat必须存在"    "$ANCHOR_NEED"     frag_kucat_stage2
+replace_command "$W2" \
+  "        sudo bash -c 'bash <(curl -fsSL https://github.com/281677160/common/raw/main/custom/ubuntu.sh)'" \
+  '        sudo --preserve-env=DEBIAN_FRONTEND,TMP_DIR bash -e -o pipefail "${LINSHI_COMMON}/custom/ubuntu.sh"' frag_deploy_command "部署脚本调用"
+replace_command "$W2" \
+  '        bash ${{ env.COMMON_SH }} Diy_firmware' \
+  '        bash -e "${COMMON_SH}" Diy_firmware' frag_firmware_command "固件整理调用"
+replace_command "$W2" \
+  '      uses: 281677160/common@cloud' \
+  '      uses: ./.github/actions/immortalwrt-release' frag_release_action "在线发布动作"
+ensure_strict_step "$W2" "整理固件文件夹(需配合diy-part.sh设定使用)"
+ensure_strict_step "$W2" "发送[在线更新固件]至云端"
 
-if [[ ! -f tools/immortalwrt-config.sh ]]; then
-  echo '  文件不存在! tools/immortalwrt-config.sh'; BROKEN=$((BROKEN+1))
-fi
+for required in tools/immortalwrt-config.sh tools/prepare-immortalwrt.sh tools/patches/immortalwrt-common.patch build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch tools/immortalwrt-release.cjs .github/actions/immortalwrt-release/action.yml .github/actions/immortalwrt-mishi/action.yml; do
+  if [[ ! -f "$required" ]]; then
+    printf '  文件不存在! %s\n' "$required"; BROKEN=$((BROKEN+1))
+  fi
+done
 
 echo
 if [[ "$CHECK" == 1 ]]; then

@@ -4,7 +4,7 @@
 本文件只记录**本仓库相对上游改了什么**、**为什么这么改**、**同步上游后怎么补回来**。
 上游没有同名文件，`git merge upstream/main` 时本文件不会冲突。
 
-最后更新：2026-09-07
+最后更新：2026-09-12
 
 ---
 
@@ -25,6 +25,7 @@ Immortalwrt 只保留一个阶段一入口，cron 仍为 `05 22 * * 5`。同一�
 - 手动触发：只编译下拉框选中的一个配置，**不修改长期定时列表**。
 - 定时触发：`plan` job 读取 `build/Immortalwrt/settings.ini` 的 `CONFIG_FILE`，生成 `build` 使用的 matrix。
 - 阶段二 `compile.yml`：显式 checkout 触发该次运行的 `github.sha`，读取该提交中的 `build/Immortalwrt/relevance/settings.ini`，再由 `select` 选择 DIY，避免读到下一配置的新提交。
+- “双配置测试”也遍历长期列表。阶段一通过本库 `immortalwrt-mishi` 适配器将 `matrix.config_file` 显式传给准备动作，避免上游把“双配置测试”当作 seed 文件名；阶段二仍从触发提交的 relevance 读取单配置。
 
 长期定时列表用空格分隔，默认配置示例：
 
@@ -70,11 +71,42 @@ CONFIG_FILE="x86_64 x86_64_250"
 - 阶段一补进 `${CONFIG_TXT}`（`@trigger` 会把它拷成新 seed，保证仓库 seed 一直带着）
 - 阶段二补进 `.config` 并 `make defconfig`，然后核验主题、配置插件、语言包三项都为 `=y`，缺任一 `exit 1` 让编译当场失败，不静默放过
 
-### 手动和定时双配置实测（2026-09-09）
+### 手动与矩阵验证（2026-09-09）
 
 - **手动选择单配置**：下拉框选 `x86_64` 或 `x86_64_250`，`tools/immortalwrt-config.sh matrix` 输出 `configs=["x86_64"]` 或 `["x86_64_250"]`，只编译选中的那个。
 - **定时双配置**：周五 22:05 UTC（周六北京时间 06:05），`INPUT_CONFIG` 为空，脚本读取 `CONFIG_FILE="x86_64 x86_64_250"`，输出 `configs=["x86_64","x86_64_250"]`，两个配置并行编译（`max-parallel: 1` 保证准备阶段串行，防止覆盖 seed）。
 - run #34344193695（`ac37582` 提交）成功，kucat 三包核验通过，固件正常产出。
+
+### 在线更新、依赖与清理修复（2026-09-12）
+
+两个 workflow 在 `@mishi` 后执行 `tools/prepare-immortalwrt.sh`；阶段一先完成 `restore`。该工具检查 `KEEP_RELEASES`、`KEEP_WORKFLOWS` 为非负整数，再对已下载的上游副本应用 `tools/patches/immortalwrt-common.patch`。整份补丁先检查再应用，上游上下文变化时明确失败。
+
+这里的 mishi 使用 `.github/actions/immortalwrt-mishi`，基于上游 `7f54c8c5de614a14fbd518879171f36e3989d047` 固定版本。仅增加显式 `config_file` 输入并替换手动分支的配置取值，其余上游准备步骤保留；更新此副本时需对照 `tests/fixtures/common/mishi.yml` 和输入链路测试。
+
+在线更新在 `upgrade.sh` 生成元数据的位置统一加入 `CONFIG_FILE`，硬件目标 `TARGET_PROFILE` 保持原值：
+
+| 配置 | 更新通道 | 固件内更新匹配标识 |
+|---|---|---|
+| `x86_64` | `Update-x86-x86_64` | `x86-64-x86_64` |
+| `x86_64_250` | `Update-x86-x86_64_250` | `x86-64-x86_64_250` |
+
+Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件仍指向原来的 `Update-x86` 共用通道，无法自行判断网段；首次迁移须手动选择对应新版，升级后核对 `/etc/openwrt_update` 的 `RELEASE_DOWNLOAD` 已指向对应新通道。此修复不会改写已经安装的旧固件。
+
+发布改用本仓库的 `.github/actions/immortalwrt-release`：上传固件和上传索引都显式要求上传错误使任务失败；`tools/immortalwrt-release.cjs` 逐一核对远端固件状态、大小和 SHA-256，全部符合本地文件后才生成 `zzz_api`。旧固件清理只操作相同配置、源码版本与引导格式，保留最近一份旧版；权限、删除、查询失败均会传播，只有新通道尚不存在的明确 404 允许首次创建。
+
+环境部署直接执行修复后的 `${LINSHI_COMMON}/custom/ubuntu.sh`，补齐依赖列表丢失的续行符，移除已经 404 的重复短链安装入口；依赖安装失败立即结束。`KEEP_RELEASES="30"` 与 `KEEP_WORKFLOWS="30"` 均须保留有效设置，入口清理、固件整理和云端发布失败也会使任务失败。
+
+`build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch` 在首次 `make defconfig` 前修正 Kconfig 生成器：虚包 `select` 和相互冲突的去重共用同一 provider 顺序，避免默认变体的条件选择重新形成反向依赖。recipe 和原始包元数据中的双向冲突不变，保留 Nikki 与两个 Mihomo 变体。修复后的 23.05、24.10、25.12、master 生成器已通过真实 Kconfiglib 的 28 个场景、756 组状态验证；本次固件实际使用 24.10/opkg，未扩展 APK 后端。
+
+可重复检查：
+
+```bash
+node --test tests/immortalwrt-build.test.cjs tests/immortalwrt-kconfig.test.cjs tests/immortalwrt-workflow.test.cjs tests/immortalwrt-release.test.cjs tests/immortalwrt-mishi.test.cjs
+bash tools/apply-custom-steps.sh --check
+actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
+```
+
+9 月 12 日旧版定时入口 `34659837575` 已真实完成两套编译，IP 和 kucat 三包经产物解包核对；上面的修复已通过本地回归，尚需新一轮 GitHub Actions 构建验收，实机启动未验证。cron 仍为北京时间每周六 06:05；[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)明确定时事件可能延迟或丢弃，仓库配置不能保证精确到点，本次旧版实际在 07:55 触发。
 
 
 ## 四、相对上游改了哪些文件（含双配置定时与单网段切换）
@@ -87,6 +119,11 @@ CONFIG_FILE="x86_64 x86_64_250"
 - `build/Immortalwrt/seed/x86_64_250` — 250 机型 seed
 - `tools/immortalwrt-config.sh` — 矩阵生成、单配置准备、长期配置还原和 DIY 选择的统一实现（4 个命令：`matrix`/`prepare`/`restore`/`select`）
 - `tools/apply-custom-steps.sh` — 同步上游后维护两个 workflow 的自定义结构
+- `tools/prepare-immortalwrt.sh`、`tools/patches/immortalwrt-common.patch` — 上游副本的更新标识、依赖与补丁失败传播修复
+- `.github/actions/immortalwrt-release/action.yml`、`tools/immortalwrt-release.cjs` — 上传失败传播、远端产物校验与索引生成
+- `.github/actions/immortalwrt-mishi/action.yml` — 固定上游准备动作，并显式接收矩阵配置
+- `build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch` — Kconfig 相互冲突消环
+- `tests/` — 使用固定上游夹具的行为回归测试
 - `.github/workflows/clean-workflow.yml`、`keepalive.yml` — 自建
 - `README-Shine.md` — 本文件
 
@@ -95,7 +132,7 @@ CONFIG_FILE="x86_64 x86_64_250"
 | 文件 | 加了什么（按重要性排序） |
 |---|---|
 | `Immortalwrt.yml` | ① 新增 `plan` job（读取 `CONFIG_FILE` 生成 matrix）和动态 matrix 结构；② `concurrency` 同分支并发控制与 `max-parallel: 1`；③ 每个配置准备时 checkout 最新分支（`ref: ${{ github.ref }}`）；④ `@mishi` 前调用 `tools/immortalwrt-config.sh prepare`（临时单配置+选 DIY）；⑤ `@mishi` 后调用 `restore`（还原长期配置与原版 DIY）；⑥ `@need` 后的 kucat 补回步骤；⑦ 下拉保留 `x86_64_250` 和 `openwrt-25.12` 选项；⑧ 个人 `cron: 05 22 * * 5`、`INFORMATION_NOTICE: Telegram`、`KEEP_*: 30` |
-| `compile.yml` | ① 显式 checkout `github.sha`（防阶段二读到新提交）；② `@mishi` 前调用 `select`（按 `relevance/settings.ini` 单配置选 DIY，缺脚本即失败）；③ `@need` 后的 `补回kucat配置插件并核验kucat必须存在`（三项齐全否则 `exit 1`） |
+| `compile.yml` | ① 显式 checkout `github.sha`；② `@mishi` 前调用 `select`；③ `@need` 后核验 kucat 三包；④ `@mishi` 后应用上游修复，并执行修复后的部署脚本；⑤ 严格传播固件整理错误，使用本库可校验产物的发布动作 |
 | `build/Immortalwrt/diy-part.sh` | 两个 kucat 插件源（`git clone`）、6 网段 IP（`192.168.6.2`）、`Mandatory_theme=kucat`、`Default_theme=kucat`、个性签名（`Op_name="Op-Shine"`） |
 | `build/Immortalwrt/seed/x86_64` | kucat 三件套（`luci-theme-kucat`、`luci-app-kucat-config`、`luci-i18n-kucat-config-zh-cn`）等选包 |
 | `build/Immortalwrt/settings.ini` | `CONFIG_FILE="x86_64 x86_64_250"` 作为默认长期定时列表（空格分隔，支持只填一个）；其他编译参数（`SOURCE_CODE`、`REPO_BRANCH`、通知开关等） |
@@ -181,7 +218,7 @@ git add .github/workflows/
 
 ### tools/apply-custom-steps.sh
 
-幂等，跑几次都不会重复插入。只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用与原有 kucat 步骤。
+幂等，跑几次都不会重复插入。只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用、原有 kucat 步骤，以及新的上游修复调用、部署脚本路径和关键步骤失败传播。辅助脚本与两份补丁缺失时，检查必须失败。
 
 ```bash
 bash tools/apply-custom-steps.sh           # 补回 workflow 结构
@@ -209,6 +246,7 @@ git commit
 4. `compile.yml` 显式 checkout `github.sha`，按该提交的 `relevance/settings.ini` 调用 `select`；250 脚本缺失时必须报错，不能静默回落。
 5. 原有 `补回kucat...` 仍在 `@need` **之后**、`下载软件包` 之前；两个 workflow 都能被 `npx --yes js-yaml` 解析。
 6. `CONFIG_FILE` 长期列表、`openwrt-25.12` 下拉选项、通知与保留数按需保留；cron 仍为 `05 22 * * 5`，即北京时间每周六 06:05。
+7. 两个入口均在 `@mishi` 后调用 `prepare-immortalwrt.sh`；部署执行修复后的本地上游副本，整理以 `bash -e` 执行，发布使用本库 action；清理和上传不忽略失败，两个补丁及发布校验脚本仍存在。
 
 ### 典型失误案例：批量删除诊断步骤时误删关键步骤（2026-09-09）
 
@@ -231,4 +269,4 @@ git commit
 6. **缺少 250 DIY 不是可以回落的情况。** 选择 `_250` 配置而缺少 `diy-part-250.sh` 必须失败，否则会把 250 配置错误编译成 6 网段。
 7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
 
-验证边界：本次双配置调度重构尚未由 GitHub Actions 实跑验证；本地脚本检查和 YAML 解析不能代替两个配置的实际 CI 结果。
+验证边界：双配置定时已在 2026-09-12 的旧版 CI 运行中验证；新的更新通道、清理和依赖修复目前通过本地回归，仍需两套新固件的实际 CI 结果。旧固件的在线更新通道不会被仓库代码自动迁移。

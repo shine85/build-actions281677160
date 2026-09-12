@@ -55,13 +55,18 @@ jobs:
       run: bash tools/immortalwrt-config.sh select
 
     - name: 检测密匙/文件/版本
-      uses: 281677160/common@mishi
+      uses: ./.github/actions/immortalwrt-mishi
+
+    - name: 应用上游编译修复
+      run: bash tools/prepare-immortalwrt.sh
 
     - name: 部署编译环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo bash -c 'bash <(curl -fsSL https://github.com/281677160/common/raw/main/custom/ubuntu.sh)'
+        export TMP_DIR="${RUNNER_TEMP}/immortalwrt-dependencies"
+        mkdir -p "$TMP_DIR"
+        sudo --preserve-env=DEBIAN_FRONTEND,TMP_DIR bash -e -o pipefail "${LINSHI_COMMON}/custom/ubuntu.sh"
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /${{ env.DIY_WORK }}
         sudo chown ${USER}:${GROUPS} /${{ env.DIY_WORK }}
@@ -88,7 +93,7 @@ jobs:
            sed -i "/^# CONFIG_PACKAGE_${P} is not set$/d" .config
            grep -q "^CONFIG_PACKAGE_${P}=y$" .config || echo "CONFIG_PACKAGE_${P}=y" >> .config
         done
-        make defconfig > /dev/null 2>&1
+        make defconfig
         MISS=""
         for P in luci-theme-kucat luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
            if grep -q "^CONFIG_PACKAGE_${P}=y$" .config; then
@@ -134,16 +139,14 @@ jobs:
       uses: 281677160/common@aarch
 
     - name: 整理固件文件夹(需配合diy-part.sh设定使用)
-      continue-on-error: true
       if: steps.compile.outcome == 'success'
       run: |
         cd openwrt
-        bash ${{ env.COMMON_SH }} Diy_firmware
+        bash -e "${COMMON_SH}" Diy_firmware
 
     - name: 发送[在线更新固件]至云端
-      continue-on-error: true
       if: steps.compile.outcome == 'success' && env.UPDATE_FIRMWARE_ONLINE == 'true'
-      uses: 281677160/common@cloud
+      uses: ./.github/actions/immortalwrt-release
         
     - name: 上传,发布,信息通知
       if: steps.compile.outcome == 'success'

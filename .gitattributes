@@ -1,0 +1,16 @@
+# Bash 和补丁必须在 Windows 检出后仍保持 LF；测试夹具还需要保留上游字节内容。
+/tools/*.sh text eol=lf
+/tools/patches/*.patch text eol=lf
+/build/Immortalwrt/patches/*.patch text eol=lf
+/build/Immortalwrt/settings.ini text eol=lf
+/.github/workflows/Immortalwrt.yml text eol=lf
+/.github/workflows/compile.yml text eol=lf
+/.github/actions/immortalwrt-release/action.yml text eol=lf
+/.github/actions/immortalwrt-mishi/action.yml text eol=lf
+/tests/** text eol=lf
+/README-Shine.md text eol=lf
+
+# 统一差异的上下文前缀及固定上游原件保留原始字节。
+/tools/patches/*.patch -whitespace
+/build/Immortalwrt/patches/*.patch -whitespace
+/tests/fixtures/common/* -whitespace

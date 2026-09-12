@@ -1,0 +1,84 @@
+Source-Makefile: package/feeds/danshui/mihomo-alpha/Makefile
+Package: mihomo-alpha
+Version: 1
+Section: net
+Category: Network
+Title: mihomo-alpha
+Conflicts: mihomo-meta
+Provides: mihomo
+Build-Variant: alpha
+Description: mihomo-alpha
+@@
+
+Source-Makefile: package/feeds/danshui/mihomo-meta/Makefile
+Package: mihomo-meta
+Version: 1
+Section: net
+Category: Network
+Title: mihomo-meta
+Conflicts: mihomo-alpha
+Provides: mihomo
+Build-Variant: meta
+Default-Variant: meta
+Description: mihomo-meta
+@@
+
+Source-Makefile: package/feeds/danshui/nikki/Makefile
+Package: nikki
+Version: 1
+Section: net
+Category: Network
+Title: nikki
+Depends: +mihomo
+Description: nikki
+@@
+
+Source-Makefile: package/feeds/danshui/luci-app-nikki/Makefile
+Package: luci-app-nikki
+Version: 1
+Section: net
+Category: Network
+Title: luci-app-nikki
+Depends: +nikki
+Description: luci-app-nikki
+@@
+
+Source-Makefile: package/feeds/danshui/probe-a/Makefile
+Package: probe-a
+Version: 1
+Section: net
+Category: Network
+Title: probe-a
+
+Description: probe-a
+@@
+
+Source-Makefile: package/feeds/danshui/probe-z/Makefile
+Package: probe-z
+Version: 1
+Section: net
+Category: Network
+Title: probe-z
+Conflicts: probe-a
+Description: probe-z
+@@
+
+Source-Makefile: package/feeds/danshui/probe-b/Makefile
+Package: probe-b
+Version: 1
+Section: net
+Category: Network
+Title: probe-b
+Conflicts: probe-y
+Description: probe-b
+@@
+
+Source-Makefile: package/feeds/danshui/probe-y/Makefile
+Package: probe-y
+Version: 1
+Section: net
+Category: Network
+Title: probe-y
+
+Description: probe-y
+@@
