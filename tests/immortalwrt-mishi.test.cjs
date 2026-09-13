@@ -44,8 +44,9 @@ function runStep(action, name, values, env, cwd) {
 }
 
 for (const [event, choice, config] of [
-  ['workflow_dispatch', '双配置测试', 'x86_64'],
-  ['workflow_dispatch', '双配置测试', 'x86_64_250'],
+  // 显式矩阵输入必须优先于原始下拉值，即使两者都是有效配置。
+  ['workflow_dispatch', 'x86_64_250', 'x86_64'],
+  ['workflow_dispatch', 'x86_64', 'x86_64_250'],
   ['workflow_dispatch', 'x86_64', 'x86_64'],
   ['workflow_dispatch', 'x86_64_250', 'x86_64_250'],
   ['schedule', '', 'x86_64'],

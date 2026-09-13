@@ -25,7 +25,9 @@ Immortalwrt 只保留一个阶段一入口，cron 仍为 `05 22 * * 5`。同一�
 - 手动触发：只编译下拉框选中的一个配置，**不修改长期定时列表**。
 - 定时触发：`plan` job 读取 `build/Immortalwrt/settings.ini` 的 `CONFIG_FILE`，生成 `build` 使用的 matrix。
 - 阶段二 `compile.yml`：显式 checkout 触发该次运行的 `github.sha`，读取该提交中的 `build/Immortalwrt/relevance/settings.ini`，再由 `select` 选择 DIY，避免读到下一配置的新提交。
-- “双配置测试”也遍历长期列表。阶段一通过本库 `immortalwrt-mishi` 适配器将 `matrix.config_file` 显式传给准备动作，避免上游把“双配置测试”当作 seed 文件名；阶段二仍从触发提交的 relevance 读取单配置。
+- 阶段一通过本库 `immortalwrt-mishi` 适配器将 `matrix.config_file` 显式传给准备动作，防止原始输入覆盖矩阵选出的配置；阶段二仍从触发提交的 relevance 读取单配置。
+
+临时双配置验收入口及其快捷分支已在实跑通过后移除。正式手动入口保持单配置选择，定时入口按长期列表运行。
 
 长期定时列表用空格分隔，默认配置示例：
 
@@ -123,7 +125,7 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 
 ### 完整实跑验收（2026-09-13）
 
-修复提交 `a15074d` 已推送，只触发一次关闭通知的“双配置测试”。[准备入口 #150](https://github.com/shine85/build-actions281677160/actions/runs/34702805888) 与两套独立编译均为 `completed/success`：
+修复提交 `a15074d` 已推送，当时通过临时双配置入口触发了一次关闭通知的验收（该临时入口现已撤下）。[准备入口 #150](https://github.com/shine85/build-actions281677160/actions/runs/34702805888) 与两套独立编译均为 `completed/success`：
 
 | 配置 | 固件默认 IP / 网关 | 独立编译 | 完成时间（北京时间） |
 |---|---|---|---|
@@ -133,6 +135,8 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 两份完整 artifact 均已下载并核对 SHA-256；解包确认 kucat 主题、配置插件、中文包及其清单文件齐全，`99-first-run` 包含默认主题设置。四个 Legacy/UEFI 发布镜像与 artifact 内文件一致，各通道 `zzz_api` 的哈希和资产记录一致；使用固件自带的实际匹配语句验证后，两个配置都只选中自身镜像。
 
 43 项本地回归通过。三份完整日志未再出现此前的清理空参数、依赖安装错误、下载 404、Mihomo 递归依赖或 make 失败记录。长期双配置列表和 6 网段原版 DIY 保持，通知仅在本次验收关闭。
+
+发布说明实现 `7ca7f18` 随后通过了 [准备入口 #151](https://github.com/shine85/build-actions281677160/actions/runs/34740140679) 的真实验收：[6 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740345460) 和 [250 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740553558) 均成功。CI 自动生成的时间、网段、8 个 LuCI 插件及 kucat 主题与两份新 rootfs 一致，四种 Legacy/UEFI 在线更新匹配均选中自身配置。正式入口移除测试选项后，仍以实际矩阵步骤验证手动单选、定时双配置及同步上游后的补回行为。
 
 
 ## 四、相对上游改了哪些文件（含双配置定时与单网段切换）

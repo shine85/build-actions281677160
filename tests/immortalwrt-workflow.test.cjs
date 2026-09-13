@@ -23,6 +23,14 @@ for (const name of files) {
 }
 const first = path.join(dir, files[0]);
 const second = path.join(dir, files[1]);
+const configDirectory = path.join(dir, 'build/Immortalwrt');
+fs.mkdirSync(path.join(configDirectory, 'seed'), { recursive: true });
+fs.writeFileSync(path.join(configDirectory, 'settings.ini'), 'CONFIG_FILE="x86_64 x86_64_250"\n');
+for (const config of ['x86_64', 'x86_64_250', 'armsr_rootfs_tar_gz']) {
+  fs.writeFileSync(path.join(configDirectory, 'seed', config), 'CONFIG_TARGET_TEST=y\n');
+}
+for (const name of ['diy-part.sh', 'diy-part-250.sh']) fs.writeFileSync(path.join(configDirectory, name), '#!/bin/bash\n');
+let matrixSequence = 0;
 
 after(() => {
   const target = fs.realpathSync(dir);
@@ -45,9 +53,41 @@ function step(text, name) {
   return text.slice(start, next < 0 ? text.length : next);
 }
 
+function runMatrix(file, event, choice) {
+  const lines = step(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'), '生成配置矩阵').split('\n');
+  const at = lines.findIndex(line => line.startsWith('      run:'));
+  assert.ok(at >= 0, '缺少矩阵运行命令');
+  let script = lines[at].slice('      run:'.length).trim();
+  if (script === '|') {
+    const body = [];
+    for (let i = at + 1; i < lines.length; i++) {
+      if (lines[i].trim() && !lines[i].startsWith('        ')) break;
+      body.push(lines[i].slice(8));
+    }
+    script = body.join('\n');
+  }
+  const values = { 'github.event_name': event, 'github.event.inputs.CONFIG_FILE': choice };
+  const render = text => text.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, name) => {
+    assert.ok(Object.hasOwn(values, name), '未知矩阵上下文: ' + name);
+    return values[name];
+  });
+  const input = lines.slice(0, at).find(line => line.startsWith('        INPUT_CONFIG:'));
+  const output = path.join(dir, 'matrix-' + (++matrixSequence) + '.txt');
+  const result = spawnSync('bash', ['-s'], {
+    input: 'export PATH="/usr/bin:/bin:$PATH"\nset -e\n' + render(script) + '\n',
+    cwd: dir, encoding: 'utf8', timeout: 60000, windowsHide: true,
+    env: { ...process.env, INPUT_CONFIG: input ? render(input.slice('        INPUT_CONFIG:'.length).trim()) : '',
+      GITHUB_OUTPUT: output.replaceAll('\\', '/') },
+  });
+  assert.ifError(result.error);
+  return { ...result, configs: fs.existsSync(output)
+    ? JSON.parse(fs.readFileSync(output, 'utf8').trim().replace(/^configs=/, '')) : undefined };
+}
+
 test('同步覆盖后能恢复修复调用及失败传播，重复运行不产生改动', () => {
   for (const file of [first, second]) {
     let text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+    if (file === first) text = text.replace(/^  plan:\n[\s\S]*?(?=^  build:)/m, '');
     text = text.replace('    - name: 应用上游编译修复\n      run: bash tools/prepare-immortalwrt.sh\n\n', '');
     text = text.replace('    - name: 还原长期配置和diy脚本\n      run: bash tools/immortalwrt-config.sh restore\n\n', '');
     text = text.replace(/    - name: 生成发布标题和插件说明\n[\s\S]*?(?=    - name:|$)/, '');
@@ -106,4 +146,27 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.equal(fs.readFileSync(first, 'utf8'), one);
   assert.equal(fs.readFileSync(second, 'utf8'), two);
   assert.equal(run(true).status, 0);
+});
+
+for (const [event, choice, expected] of [
+  ['workflow_dispatch', 'x86_64', ['x86_64']],
+  ['workflow_dispatch', 'x86_64_250', ['x86_64_250']],
+  ['workflow_dispatch', 'armsr_rootfs_tar_gz', ['armsr_rootfs_tar_gz']],
+  ['schedule', '', ['x86_64', 'x86_64_250']],
+]) {
+  test(event + '/' + (choice || '长期列表') + ' 在正式和补回入口中生成正确矩阵', () => {
+    for (const file of [path.join(repo, files[0]), first]) {
+      const result = runMatrix(file, event, choice);
+      assert.equal(result.status, 0, result.stderr + result.stdout);
+      assert.deepEqual(result.configs, expected);
+    }
+  });
+}
+
+test('已撤下的手动测试输入不能再触发长期双配置', () => {
+  for (const file of [path.join(repo, files[0]), first]) {
+    const result = runMatrix(file, 'workflow_dispatch', '双配置测试');
+    assert.notEqual(result.status, 0, '旧测试输入仍能启动双配置');
+    assert.equal(result.configs, undefined, '无效配置不能输出矩阵');
+  }
 });
