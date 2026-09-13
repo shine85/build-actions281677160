@@ -123,6 +123,20 @@ frag_release_action(){
   printf '%s\n' '      uses: ./.github/actions/immortalwrt-release' > "$TMPD/f"
 }
 
+frag_release_description(){ cat > "$TMPD/f" <<'FRAG'
+
+    - name: 生成发布标题和插件说明
+      if: steps.compile.outcome == 'success' && env.UPDATE_FIRMWARE_ONLINE == 'true'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      with:
+        script: |
+          const release = require(process.env.GITHUB_WORKSPACE + '/tools/immortalwrt-release.cjs');
+          const info = await release.describe();
+          core.exportVariable('IMMORTALWRT_RELEASE_NAME', info.name);
+          core.exportVariable('IMMORTALWRT_RELEASE_BODY', info.body);
+FRAG
+}
+
 frag_kucat_stage1(){ cat > "$TMPD/f" <<'FRAG'
 
     - name: 补回kucat配置插件到即将写入seed的配置
@@ -317,6 +331,8 @@ replace_command "$W2" \
 replace_command "$W2" \
   '      uses: 281677160/common@cloud' \
   '      uses: ./.github/actions/immortalwrt-release' frag_release_action "在线发布动作"
+insert_step "$W2" "生成发布标题和插件说明" '      uses: 281677160/common@aarch' frag_release_description
+ensure_strict_step "$W2" "生成发布标题和插件说明"
 ensure_strict_step "$W2" "整理固件文件夹(需配合diy-part.sh设定使用)"
 ensure_strict_step "$W2" "发送[在线更新固件]至云端"
 

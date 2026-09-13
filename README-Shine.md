@@ -90,9 +90,22 @@ CONFIG_FILE="x86_64 x86_64_250"
 | `x86_64` | [Update-x86-x86_64](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64) | `x86-64-x86_64` |
 | `x86_64_250` | [Update-x86-x86_64_250](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64_250) | `x86-64-x86_64_250` |
 
-Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件仍指向原来的 `Update-x86` 共用通道，无法自行判断网段；首次迁移须手动选择对应新版，升级后核对 `/etc/openwrt_update` 的 `RELEASE_DOWNLOAD` 已指向对应新通道。此修复不会改写已经安装的旧固件。
+Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件仍指向原来的 `Update-x86` 共用通道，网页在线更新没有 6/250 配置选择框。首次迁移可下载对应新版，通过「系统 → 备份/升级 → 刷写固件」本地上传；也可在 SSH 中备份并修改 `/etc/openwrt_update`，同时设置上表对应的 `DEVICE_MODEL` 和 `RELEASE_DOWNLOAD`。
+
+例如，旧机切换到 250 配置时，两项改为：
+
+```sh
+DEVICE_MODEL="x86-64-x86_64_250"
+RELEASE_DOWNLOAD="$GITHUB_LINK/releases/download/Update-x86-x86_64_250"
+```
+
+`GITHUB_LINK` 保持仓库首页地址，`FIRMWARE_VERSION` 保持本机真实版本。修改后清除旧索引缓存 `/tmp/api_version` 并在网页重新检测，核对候选文件的配置标识及 Legacy/UEFI 引导方式后再升级；仅修改网页的 GitHub 地址框或仅更改通道地址都不足以匹配新文件名。升级后核对上述两项确实属于新通道；仓库修改不会自动改写已经安装的旧固件。
 
 发布改用本仓库的 `.github/actions/immortalwrt-release`：上传固件和上传索引都显式要求上传错误使任务失败；`tools/immortalwrt-release.cjs` 逐一核对远端固件状态、大小和 SHA-256，全部符合本地文件后才生成 `zzz_api`。旧固件清理只操作相同配置、源码版本与引导格式，保留最近一份旧版；权限、删除、查询失败均会传播，只有新通道尚不存在的明确 404 允许首次创建。
+
+发布标题直接显示网段与配置，例如 `AutoUpdate-x86 · 192.168.6.0/24 · x86_64` 和 `AutoUpdate-x86 · 192.168.250.0/24 · x86_64_250`。发布说明包含北京时间、网段、默认管理地址、网关，以及实际编入固件的 LuCI 插件和主题名称。
+
+`compile.yml` 在编译成功后、整理删除清单前生成说明：从本次输出目录的唯一 `.manifest` 读取已安装软件，从本次生效的 `DIY_PT2_SH` 读取网络设置并计算 CIDR。日期随每次编译更新，不固定为示例日期；插件列表不使用 seed 推测，不混入语言包和底层依赖。清单缺失、多设备清单或格式错误时明确失败；未自定义的网络项如实注明采用源码默认值。两次发布共用同一标题和说明，更新通道及固件文件名沿用前述匹配规则。同步上游后的补回工具也会恢复该说明步骤，并保证它位于清单清理之前。
 
 环境部署直接执行修复后的 `${LINSHI_COMMON}/custom/ubuntu.sh`，补齐依赖列表丢失的续行符，移除已经 404 的重复短链安装入口；依赖安装失败立即结束。`KEEP_RELEASES="30"` 与 `KEEP_WORKFLOWS="30"` 均须保留有效设置，入口清理、固件整理和云端发布失败也会使任务失败。
 
@@ -101,7 +114,7 @@ Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理
 可重复检查：
 
 ```bash
-node --test tests/immortalwrt-build.test.cjs tests/immortalwrt-kconfig.test.cjs tests/immortalwrt-workflow.test.cjs tests/immortalwrt-release.test.cjs tests/immortalwrt-mishi.test.cjs
+node --test tests/immortalwrt-build.test.cjs tests/immortalwrt-kconfig.test.cjs tests/immortalwrt-workflow.test.cjs tests/immortalwrt-release.test.cjs tests/immortalwrt-release-description.test.cjs tests/immortalwrt-mishi.test.cjs
 bash tools/apply-custom-steps.sh --check
 actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 ```
@@ -282,4 +295,4 @@ git commit
 6. **缺少 250 DIY 不是可以回落的情况。** 选择 `_250` 配置而缺少 `diy-part-250.sh` 必须失败，否则会把 250 配置错误编译成 6 网段。
 7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
 
-验证边界：新版已通过两套固件的完整 CI、实物解包和更新选择验证，尚未进行实机刷写/启动。旧固件的在线更新通道不会被仓库代码自动迁移，首次升级须手动选择对应新版并核对新通道。
+验证边界：新版已通过两套固件的完整 CI、实物解包和更新选择验证，尚未进行实机刷写/启动。旧固件的在线更新通道不会被仓库代码自动迁移，首次须本地上传对应新版，或通过 SSH 同时迁移更新通道与设备匹配标识，再核对升级候选。

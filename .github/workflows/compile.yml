@@ -138,6 +138,16 @@ jobs:
       if: steps.compile.outcome == 'success' && env.ONLINE_FIRMWARE == 'true'
       uses: 281677160/common@aarch
 
+    - name: 生成发布标题和插件说明
+      if: steps.compile.outcome == 'success' && env.UPDATE_FIRMWARE_ONLINE == 'true'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      with:
+        script: |
+          const release = require(process.env.GITHUB_WORKSPACE + '/tools/immortalwrt-release.cjs');
+          const info = await release.describe();
+          core.exportVariable('IMMORTALWRT_RELEASE_NAME', info.name);
+          core.exportVariable('IMMORTALWRT_RELEASE_BODY', info.body);
+
     - name: 整理固件文件夹(需配合diy-part.sh设定使用)
       if: steps.compile.outcome == 'success'
       run: |

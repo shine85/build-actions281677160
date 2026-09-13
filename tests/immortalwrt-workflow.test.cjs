@@ -50,6 +50,7 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
     let text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
     text = text.replace('    - name: 应用上游编译修复\n      run: bash tools/prepare-immortalwrt.sh\n\n', '');
     text = text.replace('    - name: 还原长期配置和diy脚本\n      run: bash tools/immortalwrt-config.sh restore\n\n', '');
+    text = text.replace(/    - name: 生成发布标题和插件说明\n[\s\S]*?(?=    - name:|$)/, '');
     text = text.replace('      uses: ./.github/actions/immortalwrt-mishi\n      with:\n        config_file: ${{ matrix.config_file }}', '      uses: 281677160/common@mishi');
     text = text.replace('      uses: ./.github/actions/immortalwrt-mishi', '      uses: 281677160/common@mishi');
     for (const name of ['清理releases和workflows', '整理固件文件夹(需配合diy-part.sh设定使用)', '发送[在线更新固件]至云端']) {
@@ -92,6 +93,10 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.ok(deployment.includes('mkdir -p "$TMP_DIR"'));
   assert.ok(!deployment.includes('curl -fsSL'));
   assert.ok(step(two, '整理固件文件夹(需配合diy-part.sh设定使用)').includes('bash -e "${COMMON_SH}" Diy_firmware'));
+  const description = step(two, '生成发布标题和插件说明');
+  assert.ok(description.includes('await release.describe()'));
+  assert.ok(two.indexOf(description) > two.indexOf('    - name: 开始编译固件'));
+  assert.ok(two.indexOf(description) < two.indexOf('    - name: 整理固件文件夹(需配合diy-part.sh设定使用)'), '清单删除前必须生成说明');
   assert.ok(step(two, '发送[在线更新固件]至云端').includes('uses: ./.github/actions/immortalwrt-release'));
   assert.ok(one.includes("cron: '05 22 * * 5'"), '长期定时不能被补回操作改写');
 

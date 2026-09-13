@@ -14,12 +14,12 @@ runs:
     - name: 上传在线更新固件
       uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
       with:
-        name: AutoUpdate-${{ env.TARGET_BOARD }}
+        name: ${{ env.IMMORTALWRT_RELEASE_NAME }}
         tag: ${{ env.UPDATE_TAG }}
         token: ${{ env.REPO_TOKEN }}
         allowUpdates: true
         artifactErrorsFailBuild: true
-        body: ${{ env.TONGZHI_DATE }}
+        body: ${{ env.IMMORTALWRT_RELEASE_BODY }}
         artifacts: ${{ env.BIN_PATH }}/*
 
     - name: 核验固件并生成更新索引
@@ -33,14 +33,14 @@ runs:
     - name: 上传已核验的更新索引
       uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
       with:
-        name: AutoUpdate-${{ env.TARGET_BOARD }}
+        name: ${{ env.IMMORTALWRT_RELEASE_NAME }}
         tag: ${{ env.UPDATE_TAG }}
         token: ${{ env.REPO_TOKEN }}
         allowUpdates: true
         artifactErrorsFailBuild: true
         replacesArtifacts: true
         artifacts: ${{ env.AUTO_API }}
-        body: ${{ env.TONGZHI_DATE }}
+        body: ${{ env.IMMORTALWRT_RELEASE_BODY }}
 
     - name: 记录发布成功
       shell: bash
