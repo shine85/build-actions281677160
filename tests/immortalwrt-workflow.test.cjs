@@ -15,6 +15,7 @@ const files = [
   'build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch',
   'tools/immortalwrt-release.cjs', '.github/actions/immortalwrt-release/action.yml',
   '.github/actions/immortalwrt-mishi/action.yml',
+  '.github/workflows/keepalive.yml', '.github/workflows/runner-diagnostics.yml',
 ];
 for (const name of files) {
   const target = path.join(dir, name);
@@ -88,6 +89,9 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   for (const file of [first, second]) {
     let text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
     if (file === first) text = text.replace(/^  plan:\n[\s\S]*?(?=^  build:)/m, '');
+    text = text.replace(/actions\/checkout@[^\r\n]+/g, 'actions/checkout@v4');
+    text = text.replace('      with:\n        ref: ${{ github.ref_name }}\n', '');
+    text = text.replace('      with:\n        ref: ${{ github.sha }}\n', '');
     text = text.replace('    - name: 应用上游编译修复\n      run: bash tools/prepare-immortalwrt.sh\n\n', '');
     text = text.replace('    - name: 还原长期配置和diy脚本\n      run: bash tools/immortalwrt-config.sh restore\n\n', '');
     text = text.replace(/    - name: 生成发布标题和插件说明\n[\s\S]*?(?=    - name:|$)/, '');
@@ -145,6 +149,28 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.equal(again.status, 0, again.stderr + again.stdout);
   assert.equal(fs.readFileSync(first, 'utf8'), one);
   assert.equal(fs.readFileSync(second, 'utf8'), two);
+  assert.equal(run(true).status, 0);
+});
+
+test('上游仅恢复旧 checkout 时也能检测并升级，保留所有检出参数和缩进', () => {
+  const targets = [first, second, path.join(dir, '.github/workflows/keepalive.yml'),
+    path.join(dir, '.github/workflows/runner-diagnostics.yml')];
+  const expected = targets.map(file => fs.readFileSync(file, 'utf8'));
+  const oldReferences = ['actions/checkout@v4', 'actions/checkout@v4',
+    '"actions/checkout@v4.2.2"', "'actions/checkout@v4'"];
+  for (let i = 0; i < targets.length; i++) {
+    fs.writeFileSync(targets[i], expected[i].replace(/actions\/checkout@[^\r\n]+/g, oldReferences[i]));
+  }
+  const outdated = targets.map(file => fs.readFileSync(file, 'utf8'));
+  const checked = run(true);
+  assert.ifError(checked.error);
+  assert.notEqual(checked.status, 0, '旧 checkout 运行时不能被检查为全部到位');
+  assert.deepEqual(targets.map(file => fs.readFileSync(file, 'utf8')), outdated, '检查模式不能升级文件');
+  const restored = run(false);
+  assert.ifError(restored.error);
+  assert.equal(restored.status, 0, restored.stderr + restored.stdout);
+  const normalizeNewlines = text => text.replace(/\r\n/g, '\n').replace(/\n?$/, '\n');
+  assert.deepEqual(targets.map(file => normalizeNewlines(fs.readFileSync(file, 'utf8'))), expected.map(normalizeNewlines));
   assert.equal(run(true).status, 0);
 });
 

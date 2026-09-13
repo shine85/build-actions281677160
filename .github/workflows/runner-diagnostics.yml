@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: 读取诊断脚本
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

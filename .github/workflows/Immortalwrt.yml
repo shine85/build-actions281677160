@@ -100,7 +100,7 @@ jobs:
       configs: ${{ steps.configs.outputs.configs }}
     steps:
     - name: 读取配置
-      uses: actions/checkout@v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: 生成配置矩阵
       id: configs
       env:
@@ -125,7 +125,7 @@ jobs:
         
     steps:
     - name: 准备结束
-      uses: actions/checkout@v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.ref_name }}
 

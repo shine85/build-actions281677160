@@ -85,6 +85,8 @@ CONFIG_FILE="x86_64 x86_64_250"
 
 这里的 mishi 使用 `.github/actions/immortalwrt-mishi`，基于上游 `7f54c8c5de614a14fbd518879171f36e3989d047` 固定版本。仅增加显式 `config_file` 输入并替换手动分支的配置取值，其余上游准备步骤保留；更新此副本时需对照 `tests/fixtures/common/mishi.yml` 和输入链路测试。
 
+所有工作流的 `actions/checkout` 统一固定到 `3d3c42e5aac5ba805825da76410c181273ba90b1`（v7.0.1，Node.js 24），消除 v4 的 Node.js 20 弃用提示。官方要求 Runner 至少 2.327.1，Docker action 内使用认证 Git 命令需至少 2.329.0；本次实际使用的 2.337.0 满足要求。补回工具会先升级各工作流中的旧 v4 引用，再用同一固定版本生成规划任务并定位 checkout 的 `ref` 插入位置。
+
 在线更新在 `upgrade.sh` 生成元数据的位置统一加入 `CONFIG_FILE`，硬件目标 `TARGET_PROFILE` 保持原值：
 
 | 配置 | 更新通道 | 固件内更新匹配标识 |
@@ -186,7 +188,7 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 旧结构的历史验证（`git merge-tree` 在内存里试合并，不碰工作区；不代表本次双配置调度已通过 CI）：
 
 - 上游只改文件尾部、或在中段插新行 → **自动合并成功**，当时的自定义步骤和 `cron: 05 22 * * 5` 全在，上游改动也进来了
-- 上游改 `runs-on` 或 `actions/checkout@v4` → **冲突**（前者紧邻自定义的 `if:` 行，后者正是插入锚点）
+- 上游改 `runs-on` 或 checkout 步骤 → **冲突**（前者紧邻自定义的 `if:` 行，后者正是插入锚点）
 
 现在 `Immortalwrt.yml` 的定制还包括 `plan`、matrix、并发控制和 checkout，不能只检查旧的三个步骤。中途想放弃：`git merge --abort` 回到合并前。
 
@@ -248,7 +250,7 @@ git add .github/workflows/
 
 ### tools/apply-custom-steps.sh
 
-幂等，跑几次都不会重复插入。只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用、原有 kucat 步骤，以及新的上游修复调用、部署脚本路径和关键步骤失败传播。辅助脚本与两份补丁缺失时，检查必须失败。
+幂等，跑几次都不会重复插入。结构补回只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，另会统一升级仓库各工作流中的 checkout v4 引用；不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用、原有 kucat 步骤，以及新的上游修复调用、部署脚本路径和关键步骤失败传播。辅助脚本与两份补丁缺失时，检查必须失败；`--check` 发现旧 checkout 运行时也会失败，且不修改文件。
 
 ```bash
 bash tools/apply-custom-steps.sh           # 补回 workflow 结构

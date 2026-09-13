@@ -6,7 +6,7 @@
 #   bash tools/apply-custom-steps.sh          # 补回缺失的步骤
 #   bash tools/apply-custom-steps.sh --check  # 只检查不改,有缺失则退出码1
 #
-# 只负责 workflow 里的「结构性插入」,不管以下内容(那些是纯配置,冲突时保留自己的即可):
+# 维护 checkout 运行时引用及两个主 workflow 的结构,不管以下内容(那些是纯配置,冲突时保留自己的即可):
 #   build/Immortalwrt/diy-part.sh  diy-part-250.sh  seed/*  settings.ini
 #
 set -uo pipefail
@@ -17,6 +17,9 @@ CHECK=0
 
 W1=".github/workflows/Immortalwrt.yml"
 W2=".github/workflows/compile.yml"
+CHECKOUT_ACTION='actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1'
+CHECKOUT_ANCHOR="      uses: $CHECKOUT_ACTION"
+CHECKOUT_LEGACY="^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+['\"]?actions/checkout@v4([.][0-9]+)*['\"]?([[:space:]]|$)"
 ANCHOR_MISHI="      uses: ./.github/actions/immortalwrt-mishi"
 MISHI_CONFIG='        config_file: ${{ matrix.config_file }}'
 ANCHOR_NEED="      uses: 281677160/common@need"
@@ -45,7 +48,9 @@ frag_plan(){ cat > "$TMPD/f" <<'FRAG'
       configs: ${{ steps.configs.outputs.configs }}
     steps:
     - name: 读取配置
-      uses: actions/checkout@v4
+FRAG
+  printf '%s\n' "$CHECKOUT_ANCHOR" >> "$TMPD/f"
+  cat >> "$TMPD/f" <<'FRAG'
     - name: 生成配置矩阵
       id: configs
       env:
@@ -297,6 +302,28 @@ add_option(){ # $1=yml
   printf '  已插入  %-46s %s\n' "机型下拉 x86_64_250" "${f##*/}"; CHANGED=$((CHANGED+1))
 }
 
+upgrade_checkout(){
+  local file="$1" status=0
+  grep -qE "$CHECKOUT_LEGACY" "$file" || status=$?
+  [[ "$status" == 1 ]] && return 0
+  [[ "$status" == 0 ]] || exit "$status"
+  if [[ "$CHECK" == 1 ]]; then
+    printf '  旧 checkout 运行时! %s\n' "$file"; MISSING=$((MISSING+1)); return
+  fi
+  awk -v legacy="$CHECKOUT_LEGACY" -v checkout="$CHECKOUT_ACTION" '
+    $0 ~ legacy {sub(/["\047]?actions\/checkout@v4([.][0-9]+)*["\047]?/, checkout)}
+    {print}
+  ' "$file" > "$TMPD/workflow" || exit 1
+  cat "$TMPD/workflow" > "$file" || exit 1
+  printf '  已升级 checkout 至 Node.js 24 版本  %s\n' "$file"; CHANGED=$((CHANGED+1))
+}
+
+echo "== checkout 运行时"
+for workflow in .github/workflows/*.yml .github/workflows/*.yaml; do
+  [[ -f "$workflow" ]] || continue
+  upgrade_checkout "$workflow"
+done
+
 echo "== 阶段一 ${W1##*/}"
 replace_command "$W1" '      uses: 281677160/common@mishi' "$ANCHOR_MISHI" frag_mishi_stage1 "矩阵准备动作"
 if ! grep -qxF "$MISHI_CONFIG" "$W1"; then
@@ -307,7 +334,7 @@ insert_block "$W1" '  plan:' 'jobs:' frag_plan all
 insert_block "$W1" '    needs: plan' '  build:' frag_needs
 insert_block "$W1" '      max-parallel: 1' '      fail-fast: false' frag_parallel
 insert_block "$W1" '        config_file: ${{ fromJSON(needs.plan.outputs.configs) }}' '        target: [Immortalwrt]' frag_matrix
-insert_block "$W1" '        ref: ${{ github.ref_name }}' '      uses: actions/checkout@v4' frag_checkout_stage1
+insert_block "$W1" '        ref: ${{ github.ref_name }}' "$CHECKOUT_ANCHOR" frag_checkout_stage1
 ensure_schedule_condition
 add_option     "$W1"
 insert_step    "$W1" "选择本次编译使用的diy脚本"              '        ref: ${{ github.ref_name }}' frag_pick_stage1
@@ -318,7 +345,7 @@ ensure_strict_step "$W1" "清理releases和workflows"
 
 echo "== 阶段二 ${W2##*/}"
 replace_command "$W2" '      uses: 281677160/common@mishi' "$ANCHOR_MISHI" frag_mishi_stage2 "准备动作"
-insert_block "$W2" '        ref: ${{ github.sha }}' '      uses: actions/checkout@v4' frag_checkout_stage2
+insert_block "$W2" '        ref: ${{ github.sha }}' "$CHECKOUT_ANCHOR" frag_checkout_stage2
 insert_step    "$W2" "选择本次编译使用的diy脚本"              '        ref: ${{ github.sha }}' frag_pick_stage2
 insert_step    "$W2" "应用上游编译修复" "$ANCHOR_MISHI" frag_prepare_common
 insert_step    "$W2" "补回kucat配置插件并核验kucat必须存在"    "$ANCHOR_NEED"     frag_kucat_stage2
