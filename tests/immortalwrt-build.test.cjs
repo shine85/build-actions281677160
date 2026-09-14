@@ -42,10 +42,12 @@ function fixture(config = 'x86_64', overrides = {}) {
   const home = path.join(dir, 'openwrt');
   fs.mkdirSync(path.join(common, 'custom'), { recursive: true });
   fs.mkdirSync(path.join(common, 'autoupdate'), { recursive: true });
+  fs.mkdirSync(path.join(common, 'auto-scripts/files'), { recursive: true });
   fs.mkdirSync(path.join(home, 'package/base-files/files/etc'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, 'fixtures/common/upgrade.sh'), path.join(common, 'upgrade.sh'));
   fs.copyFileSync(path.join(__dirname, 'fixtures/common/ubuntu.sh'), path.join(common, 'custom/ubuntu.sh'));
   fs.copyFileSync(path.join(__dirname, 'fixtures/common/common.sh'), path.join(common, 'common.sh'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures/common/99-first-run'), path.join(common, 'auto-scripts/files/99-first-run'));
   fs.writeFileSync(path.join(common, 'autoupdate/replace'), '');
   const envFile = path.join(dir, 'github-env');
   fs.writeFileSync(envFile, '');
@@ -162,7 +164,7 @@ test('依赖安装保留尾段包且不再请求失效的额外依赖列表', ()
     'curl() { printf "不应额外下载依赖列表\\n" >&2; return 22; }',
     installBlock,
   ].join('\n'), [], { env: f.env })).split('\n');
-  for (const name of ['python3-setuptools', 'python3-distutils', 'python3-netifaces', 'qemu-utils', 'rsync', 'squashfs-tools', 'swig', 'zlib1g-dev']) {
+  for (const name of ['python3-setuptools', 'python3-distutils', 'python3-netifaces', 'qemu-utils', 'qemu-system-x86', 'ovmf', 'rsync', 'squashfs-tools', 'swig', 'zlib1g-dev']) {
     assert.ok(installed.includes(name), '未安装依赖: ' + name);
   }
 });
@@ -245,6 +247,19 @@ function workflowRun(name) {
   return lines.filter(line => line.startsWith('        ')).map(line => line.slice(8)).join('\n')
     .replaceAll('${{ env.COMMON_SH }}', '$COMMON_SH');
 }
+
+test('实际编译命令成功后记录完成时间，失败时不产生完成记录', () => {
+  for (const [status, expected] of [[0, true], [42, false]]) {
+    const f = fixture();
+    const before = Date.now();
+    const result = bash('set -e\nmake() { return ' + status + '; }\n' + workflowRun('开始编译固件'), [], { cwd: f.dir, env: f.env });
+    assert.ifError(result.error);
+    assert.equal(result.status, status);
+    const match = fs.readFileSync(f.envFile, 'utf8').match(/^IMMORTALWRT_COMPILED_AT=(.+)$/m);
+    assert.equal(Boolean(match), expected);
+    if (expected) assert.ok(Date.parse(match[1]) >= before - 1000 && Date.parse(match[1]) <= Date.now());
+  }
+});
 
 test('实际整理步骤传播镜像复制失败', () => {
   const f = fixture();

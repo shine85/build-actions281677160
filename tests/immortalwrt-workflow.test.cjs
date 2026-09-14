@@ -14,6 +14,9 @@ const files = [
   'tools/prepare-immortalwrt.sh', 'tools/patches/immortalwrt-common.patch',
   'build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch',
   'tools/immortalwrt-release.cjs', '.github/actions/immortalwrt-release/action.yml',
+  'tools/immortalwrt-network.cjs', 'tools/immortalwrt-lan-defaults.sh',
+  'tools/immortalwrt-plugins.cjs',
+  'tools/immortalwrt-runtime.cjs', 'tools/immortalwrt-runtime-probe.sh', 'tools/immortalwrt-verification.cjs',
   '.github/actions/immortalwrt-mishi/action.yml',
   '.github/workflows/keepalive.yml', '.github/workflows/runner-diagnostics.yml',
 ];
@@ -95,6 +98,12 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
     text = text.replace('    - name: 应用上游编译修复\n      run: bash tools/prepare-immortalwrt.sh\n\n', '');
     text = text.replace('    - name: 还原长期配置和diy脚本\n      run: bash tools/immortalwrt-config.sh restore\n\n', '');
     text = text.replace(/    - name: 生成发布标题和插件说明\n[\s\S]*?(?=    - name:|$)/, '');
+    text = text.replace(/    - name: 启动固件并验收网络和插件\n[\s\S]*?(?=    - name:|$)/, '');
+    text = text.replace(/    - name: 保存固件运行验收报告\n[\s\S]*?(?=    - name:|$)/, '');
+    const oldPluginStep = file === first ? '补回kucat配置插件到即将写入seed的配置' : '补回kucat配置插件并核验kucat必须存在';
+    text = text.replace(/    - name: 补回kucat并核验所选插件\n[\s\S]*?(?=    - name:|$)/,
+      '    - name: ' + oldPluginStep + '\n      run: echo old-kucat-only-check\n\n');
+    text = text.split('\n').filter(line => !line.includes('IMMORTALWRT_COMPILED_AT=')).join('\n');
     text = text.replace('      uses: ./.github/actions/immortalwrt-mishi\n      with:\n        config_file: ${{ matrix.config_file }}', '      uses: 281677160/common@mishi');
     text = text.replace('      uses: ./.github/actions/immortalwrt-mishi', '      uses: 281677160/common@mishi');
     for (const name of ['清理releases和workflows', '整理固件文件夹(需配合diy-part.sh设定使用)', '发送[在线更新固件]至云端']) {
@@ -137,7 +146,27 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.ok(deployment.includes('mkdir -p "$TMP_DIR"'));
   assert.ok(!deployment.includes('curl -fsSL'));
   assert.ok(step(two, '整理固件文件夹(需配合diy-part.sh设定使用)').includes('bash -e "${COMMON_SH}" Diy_firmware'));
+  assert.ok(step(one, '补回kucat并核验所选插件').includes('node tools/immortalwrt-plugins.cjs --write-seed'));
+  assert.ok(step(two, '补回kucat并核验所选插件').includes('node tools/immortalwrt-plugins.cjs\n'));
+  for (const text of [one, two]) {
+    assert.ok(!text.includes('old-kucat-only-check'));
+    assert.equal(text.split('    - name: 补回kucat并核验所选插件').length, 2);
+  }
   const description = step(two, '生成发布标题和插件说明');
+  const runtime = step(two, '启动固件并验收网络和插件');
+  assert.ok(runtime.includes('node tools/immortalwrt-runtime.cjs'));
+  assert.ok(runtime.includes('export IMMORTALWRT_RUNTIME_REPORT="$GITHUB_WORKSPACE/tmp/immortalwrt-runtime-verification.json"'));
+  const runtimeReport = step(two, '保存固件运行验收报告');
+  assert.ok(runtimeReport.includes('always()'));
+  assert.ok(runtimeReport.includes('path: ${{ env.IMMORTALWRT_RUNTIME_REPORT }}'));
+  const reportName = runtimeReport.match(/^        name: (.+)$/m)[1];
+  const nameForAttempt = attempt => reportName.replace(/\$\{\{\s*github.run_attempt\s*\}\}/g, String(attempt));
+  assert.notEqual(nameForAttempt(1), nameForAttempt(2), '重跑必须保留独立验收报告，不能撞上首次 artifact 名称');
+  assert.ok(two.indexOf(runtime) < two.indexOf(runtimeReport));
+  assert.ok(two.indexOf(runtimeReport) < two.indexOf('    - name: 整理固件文件夹(需配合diy-part.sh设定使用)'));
+  assert.ok(two.indexOf(runtime) < two.indexOf(description));
+  assert.ok(!runtime.includes('continue-on-error:'));
+  assert.ok(step(two, '开始编译固件').includes('IMMORTALWRT_COMPILED_AT='));
   assert.ok(description.includes('await release.describe()'));
   assert.ok(two.indexOf(description) > two.indexOf('    - name: 开始编译固件'));
   assert.ok(two.indexOf(description) < two.indexOf('    - name: 整理固件文件夹(需配合diy-part.sh设定使用)'), '清单删除前必须生成说明');

@@ -142,20 +142,48 @@ frag_release_description(){ cat > "$TMPD/f" <<'FRAG'
 FRAG
 }
 
+frag_runtime_command(){ cat > "$TMPD/f" <<'FRAG'
+      run: |
+        export IMMORTALWRT_RUNTIME_REPORT="$GITHUB_WORKSPACE/tmp/immortalwrt-runtime-verification.json"
+        printf 'IMMORTALWRT_RUNTIME_REPORT=%s\n' "$IMMORTALWRT_RUNTIME_REPORT" >> "$GITHUB_ENV"
+        node tools/immortalwrt-runtime.cjs
+FRAG
+}
+
+frag_runtime_verification(){
+  frag_runtime_command
+  local run_block
+  run_block="$(cat "$TMPD/f")"
+  cat > "$TMPD/f" <<'FRAG'
+
+    - name: 启动固件并验收网络和插件
+      if: steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86'
+FRAG
+  printf '%s\n' "$run_block" >> "$TMPD/f"
+}
+
+frag_runtime_report(){ cat > "$TMPD/f" <<'FRAG'
+
+    - name: 保存固件运行验收报告
+      if: always() && steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: firmware-runtime-${{ env.CONFIG_FILE }}-${{ env.LUCI_EDITION }}-attempt-${{ github.run_attempt }}
+        path: ${{ env.IMMORTALWRT_RUNTIME_REPORT }}
+        if-no-files-found: error
+FRAG
+}
+
+frag_compile_timestamp(){ cat > "$TMPD/f" <<'FRAG'
+        make -j$(nproc) || make -j1 V=s
+        printf 'IMMORTALWRT_COMPILED_AT=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+FRAG
+}
+
 frag_kucat_stage1(){ cat > "$TMPD/f" <<'FRAG'
 
-    - name: 补回kucat配置插件到即将写入seed的配置
-      run: |
-        # 上游Diy_scripts按主题名执行 sed "/kucat/d",会连带删掉kucat-config两项,
-        # 这里补回,保证@trigger推回仓库的seed始终带这两项
-        for P in luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
-           if grep -q "^CONFIG_PACKAGE_${P}=y$" "${CONFIG_TXT}"; then
-              echo -e "\033[32m 已存在 CONFIG_PACKAGE_${P}=y \033[0m"
-           else
-              echo "CONFIG_PACKAGE_${P}=y" >> "${CONFIG_TXT}"
-              echo -e "\033[32m 已补回 CONFIG_PACKAGE_${P}=y \033[0m"
-           fi
-        done
+    - name: 补回kucat并核验所选插件
+      run: node tools/immortalwrt-plugins.cjs --write-seed
 FRAG
 }
 
@@ -168,27 +196,8 @@ FRAG
 
 frag_kucat_stage2(){ cat > "$TMPD/f" <<'FRAG'
 
-    - name: 补回kucat配置插件并核验kucat必须存在
-      run: |
-        cd "${HOME_PATH}"
-        # 上游Diy_scripts按主题名执行 sed "/kucat/d",会连带删掉kucat-config两项
-        for P in luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
-           sed -i "/^# CONFIG_PACKAGE_${P} is not set$/d" .config
-           grep -q "^CONFIG_PACKAGE_${P}=y$" .config || echo "CONFIG_PACKAGE_${P}=y" >> .config
-        done
-        make defconfig
-        MISS=""
-        for P in luci-theme-kucat luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
-           if grep -q "^CONFIG_PACKAGE_${P}=y$" .config; then
-              echo -e "\033[32m 已选中 CONFIG_PACKAGE_${P}=y \033[0m"
-           else
-              MISS="${MISS} ${P}"
-           fi
-        done
-        if [[ -n "${MISS}" ]]; then
-           echo -e "\033[31m kucat要求未满足,缺失:${MISS} \033[0m"
-           exit 1
-        fi
+    - name: 补回kucat并核验所选插件
+      run: node tools/immortalwrt-plugins.cjs
 FRAG
 }
 
@@ -226,6 +235,36 @@ insert_block(){
 
 insert_step(){
   insert_block "$1" "    - name: $2" "$3" "$4"
+}
+
+ensure_plugin_step(){
+  local file="$1" old="    - name: $2" expected="$3" generator="$4"
+  local marker="    - name: 补回kucat并核验所选插件"
+  if ! grep -qxF -e "$old" -e "$marker" "$file"; then
+    insert_step "$file" "补回kucat并核验所选插件" "$ANCHOR_NEED" "$generator"
+    return
+  fi
+  if awk -v old="$old" -v marker="$marker" -v expected="$expected" '
+    /^    - name:/ {active=($0==old || $0==marker); if (active) count++}
+    active && NF {if ($0==expected) command++; else if ($0!=marker) invalid=1}
+    END {exit !(count==1 && command==1 && !invalid)}
+  ' "$file"; then
+    printf '  已核验全部所选插件  %s\n' "${file##*/}"; return
+  fi
+  if [[ "$CHECK" == 1 ]]; then
+    printf '  缺失! 完整插件校验 %s\n' "${file##*/}"; MISSING=$((MISSING+1)); return
+  fi
+  "$generator"
+  awk -v old="$old" -v marker="$marker" -v fragment="$TMPD/f" '
+    $0==old || $0==marker {
+      if (!inserted) {while ((getline line < fragment)>0) print line; inserted=1}
+      skip=1; next
+    }
+    /^    - name:/ {skip=0}
+    !skip {print}
+  ' "$file" > "$TMPD/workflow"
+  cat "$TMPD/workflow" > "$file" || exit 1
+  printf '  已升级完整插件校验  %s\n' "${file##*/}"; CHANGED=$((CHANGED+1))
 }
 
 ensure_strict_step(){
@@ -340,7 +379,7 @@ add_option     "$W1"
 insert_step    "$W1" "选择本次编译使用的diy脚本"              '        ref: ${{ github.ref_name }}' frag_pick_stage1
 insert_step    "$W1" "还原长期配置和diy脚本"                   "$MISHI_CONFIG"    frag_restore
 insert_step    "$W1" "应用上游编译修复" '      run: bash tools/immortalwrt-config.sh restore' frag_prepare_common
-insert_step    "$W1" "补回kucat配置插件到即将写入seed的配置"   "$ANCHOR_NEED"     frag_kucat_stage1
+ensure_plugin_step "$W1" "补回kucat配置插件到即将写入seed的配置" '      run: node tools/immortalwrt-plugins.cjs --write-seed' frag_kucat_stage1
 ensure_strict_step "$W1" "清理releases和workflows"
 
 echo "== 阶段二 ${W2##*/}"
@@ -348,7 +387,7 @@ replace_command "$W2" '      uses: 281677160/common@mishi' "$ANCHOR_MISHI" frag_
 insert_block "$W2" '        ref: ${{ github.sha }}' "$CHECKOUT_ANCHOR" frag_checkout_stage2
 insert_step    "$W2" "选择本次编译使用的diy脚本"              '        ref: ${{ github.sha }}' frag_pick_stage2
 insert_step    "$W2" "应用上游编译修复" "$ANCHOR_MISHI" frag_prepare_common
-insert_step    "$W2" "补回kucat配置插件并核验kucat必须存在"    "$ANCHOR_NEED"     frag_kucat_stage2
+ensure_plugin_step "$W2" "补回kucat配置插件并核验kucat必须存在" '      run: node tools/immortalwrt-plugins.cjs' frag_kucat_stage2
 replace_command "$W2" \
   "        sudo bash -c 'bash <(curl -fsSL https://github.com/281677160/common/raw/main/custom/ubuntu.sh)'" \
   '        sudo --preserve-env=DEBIAN_FRONTEND,TMP_DIR bash -e -o pipefail "${LINSHI_COMMON}/custom/ubuntu.sh"' frag_deploy_command "部署脚本调用"
@@ -359,11 +398,19 @@ replace_command "$W2" \
   '      uses: 281677160/common@cloud' \
   '      uses: ./.github/actions/immortalwrt-release' frag_release_action "在线发布动作"
 insert_step "$W2" "生成发布标题和插件说明" '      uses: 281677160/common@aarch' frag_release_description
+insert_step "$W2" "启动固件并验收网络和插件" '      uses: 281677160/common@aarch' frag_runtime_verification
+replace_command "$W2" '      run: node tools/immortalwrt-runtime.cjs' \
+  '        export IMMORTALWRT_RUNTIME_REPORT="$GITHUB_WORKSPACE/tmp/immortalwrt-runtime-verification.json"' frag_runtime_command "独立运行验收报告路径"
+insert_step "$W2" "保存固件运行验收报告" '        node tools/immortalwrt-runtime.cjs' frag_runtime_report
+replace_command "$W2" '        make -j$(nproc) || make -j1 V=s' \
+  "        printf 'IMMORTALWRT_COMPILED_AT=%s\\n' \"\$(date -u +'%Y-%m-%dT%H:%M:%SZ')\" >> \"\$GITHUB_ENV\"" frag_compile_timestamp "编译完成时间记录"
+ensure_strict_step "$W2" "启动固件并验收网络和插件"
+ensure_strict_step "$W2" "保存固件运行验收报告"
 ensure_strict_step "$W2" "生成发布标题和插件说明"
 ensure_strict_step "$W2" "整理固件文件夹(需配合diy-part.sh设定使用)"
 ensure_strict_step "$W2" "发送[在线更新固件]至云端"
 
-for required in tools/immortalwrt-config.sh tools/prepare-immortalwrt.sh tools/patches/immortalwrt-common.patch build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch tools/immortalwrt-release.cjs .github/actions/immortalwrt-release/action.yml .github/actions/immortalwrt-mishi/action.yml; do
+for required in tools/immortalwrt-config.sh tools/prepare-immortalwrt.sh tools/patches/immortalwrt-common.patch build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch tools/immortalwrt-release.cjs tools/immortalwrt-network.cjs tools/immortalwrt-lan-defaults.sh tools/immortalwrt-plugins.cjs tools/immortalwrt-runtime.cjs tools/immortalwrt-runtime-probe.sh tools/immortalwrt-verification.cjs .github/actions/immortalwrt-release/action.yml .github/actions/immortalwrt-mishi/action.yml; do
   if [[ ! -f "$required" ]]; then
     printf '  文件不存在! %s\n' "$required"; BROKEN=$((BROKEN+1))
   fi

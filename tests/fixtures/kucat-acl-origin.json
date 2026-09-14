@@ -1,0 +1,8 @@
+{
+  "repository": "sirpdboy/luci-theme-kucat",
+  "ref": "1c8e7f7c1052552f4fac09d60e5adc07ed33bfa3",
+  "path": "root/usr/share/rpcd/acl.d/luci-theme-kucat.json",
+  "sha256": "6735d53a777870c10a2afc2f1706818748da844b076f398316cc4afa159b0f40",
+  "gitBlob": "f4c0535a60e497a9bea116321185507154b3bc40",
+  "purpose": "Regression fixture: upstream ACL has one extra trailing closing brace."
+}

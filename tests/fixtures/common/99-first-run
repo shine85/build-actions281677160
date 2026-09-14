@@ -1,0 +1,71 @@
+#!/bin/sh
+
+# 设置目录权限
+chmod -R 0755 /etc/init.d /usr/share
+# 创建或更新 crontab 文件
+touch /etc/crontabs/root
+
+# 获取系统架构信息
+ARCHIB="$(grep 'DISTRIB_ARCH' /etc/openwrt_release | cut -d= -f2 | tr -d "'")"
+# 获取系统发行版 ID
+DISTRIBID="$(grep 'DISTRIB_ID' /etc/openwrt_release | cut -d= -f2 | tr -d "'")"
+
+# 如果 /etc/banner 中包含 x86_64，则替换为实际架构信息
+if grep -q "x86_64" /etc/banner; then
+	sed -i "s?x86_64?$ARCHIB?g" /etc/banner
+fi
+
+# 从 /etc/opkg/distfeeds.conf 中删除特定的内容
+if [ -f "/etc/apk/repositories.d/distfeeds.list" ]; then
+	grep -q "danshui" /etc/apk/repositories.d/distfeeds.list && sed -i '/danshui/d' /etc/apk/repositories.d/distfeeds.list
+	grep -q "dstheme" /etc/apk/repositories.d/distfeeds.list && sed -i '/dstheme/d' /etc/apk/repositories.d/distfeeds.list
+	grep -q "OpenClash" /etc/apk/repositories.d/distfeeds.list && sed -i '/OpenClash/d' /etc/apk/repositories.d/distfeeds.list
+	grep -q "helloworld" /etc/apk/repositories.d/distfeeds.list && ssed -i '/helloworld/d' /etc/apk/repositories.d/distfeeds.list
+	grep -q "passwall" /etc/apk/repositories.d/distfeeds.list && sed -i '/passwall/d' /etc/apk/repositories.d/distfeeds.list
+	grep -q "x" /etc/apk/repositories.d/distfeeds.list && sed -i '/x\/packages/d' /etc/apk/repositories.d/distfeeds.list
+else
+	grep -q "danshui" /etc/opkg/distfeeds.conf && sed -i '/danshui/d' /etc/opkg/distfeeds.conf
+	grep -q "dstheme" /etc/opkg/distfeeds.conf && sed -i '/dstheme/d' /etc/opkg/distfeeds.conf
+	grep -q "OpenClash" /etc/opkg/distfeeds.conf && sed -i '/OpenClash/d' /etc/opkg/distfeeds.conf
+	grep -q "helloworld" /etc/opkg/distfeeds.conf && sed -i '/helloworld/d' /etc/opkg/distfeeds.conf
+	grep -q "passwall" /etc/opkg/distfeeds.conf && sed -i '/passwall/d' /etc/opkg/distfeeds.conf
+	grep -q "openwrt_x" /etc/opkg/distfeeds.conf && sed -i '/openwrt_x/d' /etc/opkg/distfeeds.conf
+fi
+
+# 如果存在 /usr/share/ucode/luci/version.uc，则进行修改
+if [ -f "/usr/share/ucode/luci/version.uc" ]; then
+	sed -i '/export const revision/d' "/usr/share/ucode/luci/version.uc"
+	echo "export const revision = 'ZHUJI_MING - LUCI_EDITION', branch = '';" >> "/usr/share/ucode/luci/version.uc"
+fi
+
+# 从 /etc/openwrt_release 中删除 DISTRIB_SOURCECODE 行并添加新的
+sed -i '/DISTRIB_SOURCECODE/d' /etc/openwrt_release
+echo "DISTRIB_SOURCECODE='OPHUBOPENWRT'" >> /etc/openwrt_release
+
+# 从 /usr/lib/lua/luci/version.lua 中删除 luciversion 和 luciname 行并添加新的
+sed -i '/luciversion/d' /usr/lib/lua/luci/version.lua
+echo "luciversion    = \"LUCI_EDITION\"" >> /usr/lib/lua/luci/version.lua
+sed -i '/luciname/d' /usr/lib/lua/luci/version.lua
+echo "luciname    = \"ZHUJI_MING\"" >> /usr/lib/lua/luci/version.lua
+
+# 根据 /etc/index.htm 是否存在进行不同的修改
+luci_web=/usr/lib/lua/luci/view/admin_status/index.htm
+[ -f "$luci_web" ] && sed -i's#localtime.*=.*#localtime  = os.date("%Y-%m-%d") .. " " .. os.date("%X") .. " " .. translate(os.date("%A")),#g' "$luci_web"
+[ -f "$luci_web" ] && sed -i 's?(<%=pcdata(ver.luciversion)%>)?- <%=pcdata(ver.luciversion)%>?g' "$luci_web"
+
+# 修改 /etc/profile 文件
+sed -i 's?.*= WARNING! =.*?================== WARNING! ======================?g' /etc/profile
+
+uci -q batch <<-EOF
+	set system.@system[0].timezone="CST-8"
+	set system.@system[0].zonename="Asia/Shanghai"
+	delete system.ntp.server
+	add_list system.ntp.server="ntp.tencent.com"
+	add_list system.ntp.server="ntp1.aliyun.com"
+	add_list system.ntp.server="ntp.ntsc.ac.cn"
+	add_list system.ntp.server="cn.ntp.org.cn"
+	commit system
+	set luci.main.lang=zh_cn
+	commit luci
+EOF
+

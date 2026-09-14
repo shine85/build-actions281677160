@@ -85,27 +85,8 @@ jobs:
     - name: 运行自定义文件和其他
       uses: 281677160/common@need
 
-    - name: 补回kucat配置插件并核验kucat必须存在
-      run: |
-        cd "${HOME_PATH}"
-        # 上游Diy_scripts按主题名执行 sed "/kucat/d",会连带删掉kucat-config两项
-        for P in luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
-           sed -i "/^# CONFIG_PACKAGE_${P} is not set$/d" .config
-           grep -q "^CONFIG_PACKAGE_${P}=y$" .config || echo "CONFIG_PACKAGE_${P}=y" >> .config
-        done
-        make defconfig
-        MISS=""
-        for P in luci-theme-kucat luci-app-kucat-config luci-i18n-kucat-config-zh-cn; do
-           if grep -q "^CONFIG_PACKAGE_${P}=y$" .config; then
-              echo -e "\033[32m 已选中 CONFIG_PACKAGE_${P}=y \033[0m"
-           else
-              MISS="${MISS} ${P}"
-           fi
-        done
-        if [[ -n "${MISS}" ]]; then
-           echo -e "\033[31m kucat要求未满足,缺失:${MISS} \033[0m"
-           exit 1
-        fi
+    - name: 补回kucat并核验所选插件
+      run: node tools/immortalwrt-plugins.cjs
         
     - name: 编译信息
       continue-on-error: true
@@ -133,10 +114,26 @@ jobs:
         cd openwrt
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
+        printf 'IMMORTALWRT_COMPILED_AT=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
 
     - name: 自动打包armsr_rootfs_tar_gz
       if: steps.compile.outcome == 'success' && env.ONLINE_FIRMWARE == 'true'
       uses: 281677160/common@aarch
+
+    - name: 启动固件并验收网络和插件
+      if: steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86'
+      run: |
+        export IMMORTALWRT_RUNTIME_REPORT="$GITHUB_WORKSPACE/tmp/immortalwrt-runtime-verification.json"
+        printf 'IMMORTALWRT_RUNTIME_REPORT=%s\n' "$IMMORTALWRT_RUNTIME_REPORT" >> "$GITHUB_ENV"
+        node tools/immortalwrt-runtime.cjs
+
+    - name: 保存固件运行验收报告
+      if: always() && steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: firmware-runtime-${{ env.CONFIG_FILE }}-${{ env.LUCI_EDITION }}-attempt-${{ github.run_attempt }}
+        path: ${{ env.IMMORTALWRT_RUNTIME_REPORT }}
+        if-no-files-found: error
 
     - name: 生成发布标题和插件说明
       if: steps.compile.outcome == 'success' && env.UPDATE_FIRMWARE_ONLINE == 'true'

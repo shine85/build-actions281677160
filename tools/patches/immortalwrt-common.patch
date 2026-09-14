@@ -63,16 +63,18 @@ diff --git a/upgrade.sh b/upgrade.sh
 diff --git a/custom/ubuntu.sh b/custom/ubuntu.sh
 --- a/custom/ubuntu.sh
 +++ b/custom/ubuntu.sh
-@@ -17,7 +17,7 @@ bzip2 ccache cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-mul
+@@ -17,8 +17,8 @@
  genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
  libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
  libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full patch pkgconf \
 -python2 python3 python3-pip python3-cryptography python3-docutils python3-ply python3-pyelftools python3-requests
+-python3-setuptools python3-distutils python3-netifaces qemu-utils rsync scons squashfs-tools subversion swig \
 +python2 python3 python3-pip python3-cryptography python3-docutils python3-ply python3-pyelftools python3-requests \
- python3-setuptools python3-distutils python3-netifaces qemu-utils rsync scons squashfs-tools subversion swig \
++python3-setuptools python3-distutils python3-netifaces qemu-utils qemu-system-x86 ovmf rsync scons squashfs-tools subversion swig \
  texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
  
-@@ -27,7 +27,6 @@ apt-get install -y libfuse-dev
+ # alist依赖
+@@ -27,7 +27,6 @@
  # N1打包需要的依赖
  apt-get install -y rename pigz clang gnupg snapd
  snap install jq
@@ -80,7 +82,7 @@ diff --git a/custom/ubuntu.sh b/custom/ubuntu.sh
  
  # 安装gcc g++
  GCC_VERSION="13"
-@@ -54,7 +53,8 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+@@ -54,7 +53,8 @@
  apt-get install -y nodejs
  curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/yarnkey.gpg
  echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
@@ -93,7 +95,7 @@ diff --git a/custom/ubuntu.sh b/custom/ubuntu.sh
 diff --git a/common.sh b/common.sh
 --- a/common.sh
 +++ b/common.sh
-@@ -272,7 +272,7 @@ fi
+@@ -272,7 +272,7 @@
  
  # files大法，设置固件无烦恼
  if [ -d "${BUILD_PATCHES}" ]; then
@@ -102,7 +104,219 @@ diff --git a/common.sh b/common.sh
  fi
  if [ -d "${BUILD_DIY}" ]; then
    cp -Rf ${BUILD_DIY}/* ${HOME_PATH}
-@@ -1279,7 +1279,8 @@ function Diy_firmware() {
+@@ -476,10 +476,7 @@
+ function Diy_definition() {
+ cd ${HOME_PATH}
+ source "${DIY_PT2_SH}"
+-# 获取源码文件的IP
+-lan="/set network.\$1.netmask/a"
+-ipadd="$(grep "ipaddr:-" "${GENE_PATH}" |grep -v 'addr_offset' |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-netmas="$(grep "netmask:-" "${GENE_PATH}" |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
++node "${LINSHI_COMMON}/custom/immortalwrt-network.cjs" "${GENE_PATH}" "${DIY_PT2_SH}" || exit 1
+ opname="$(grep "hostname=" "${GENE_PATH}" |grep -v '\$hostname' |cut -d "'" -f2)"
+ if [[ -n "$(grep "set network.\${1}6.device" "${GENE_PATH}")" ]]; then
+   ifnamee="uci set network.ipv6.device='@lan'"
+@@ -493,32 +490,6 @@
+   devicee="uci set network.ipv6.device='@lan'"
+ fi
+ 
+-if [[ "${Ipv4_ipaddr}" == "0" ]] || [[ -z "${Ipv4_ipaddr}" ]]; then
+-  echo "不进行,修改后台IP"
+-elif [[ -n "${Ipv4_ipaddr}" ]]; then
+-  Kernel_Pat="$(echo ${Ipv4_ipaddr} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  ipadd_Pat="$(echo ${ipadd} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  if [[ -n "${Kernel_Pat}" ]] && [[ -n "${ipadd_Pat}" ]]; then
+-     sed -i "s/${ipadd}/${Ipv4_ipaddr}/g" "${GENE_PATH}"
+-     echo "openwrt后台IP[${Ipv4_ipaddr}]修改完成"
+-   else
+-     TIME r "因IP获取有错误，后台IP更换不成功，请检查IP是否填写正确，如果填写正确，那就是获取不了源码内的IP了"
+-   fi
+-fi
+-
+-if [[ "${Netmask_netm}" == "0" ]] || [[ -z "${Netmask_netm}" ]]; then
+-  echo "不进行,子网掩码修改"
+-elif [[ -n "${Netmask_netm}" ]]; then
+-  Kernel_netm="$(echo ${Netmask_netm} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  ipadd_mas="$(echo ${netmas} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  if [[ -n "${Kernel_netm}" ]] && [[ -n "${ipadd_mas}" ]]; then
+-     sed -i "s/${netmas}/${Netmask_netm}/g" "${GENE_PATH}"
+-     echo "子网掩码[${Netmask_netm}]修改完成"
+-   else
+-     TIME r "因子网掩码获取有错误，子网掩码设置失败，请检查IP是否填写正确，如果填写正确，那就是获取不了源码内的IP了"
+-  fi
+-fi
+-
+ if [[ ! "${Default_theme}" == "0" ]] && [[ -n "${Default_theme}" ]]; then
+   if [[ `grep -c "${Default_theme}=y" ${HOME_PATH}/.config` -eq '0' ]]; then
+     TIME r "没有${Default_theme}此主题存在，默认主题设置失败"
+@@ -578,63 +549,6 @@
+   echo "主机名[${Op_name}]修改完成"
+ fi
+ 
+-if [[ "${Gateway_Settings}" == "0" ]] || [[ -z "${Gateway_Settings}" ]]; then
+-  echo "不进行,网关设置"
+-elif [[ -n "${Gateway_Settings}" ]]; then
+-  Router_gat="$(echo ${Gateway_Settings} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  if [[ -n "${Router_gat}" ]]; then
+-    sed -i "$lan\set network.lan.gateway='${Gateway_Settings}'" "${GENE_PATH}"
+-    echo "网关[${Gateway_Settings}]修改完成"
+-  else
+-    TIME r "因子网关IP获取有错误，网关IP设置失败，请检查IP是否填写正确，如果填写正确，那就是获取不了源码内的IP了"
+-  fi
+-fi
+-
+-if [[ "${DNS_Settings}" == "0" ]] || [[ -z "${DNS_Settings}" ]]; then
+-  echo "不进行,DNS设置"
+-elif [[ -n "${DNS_Settings}" ]]; then
+-  ipa_dns="$(echo ${DNS_Settings} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  if [[ -n "${ipa_dns}" ]]; then
+-     sed -i "$lan\set network.lan.dns='${DNS_Settings}'" "${GENE_PATH}"
+-     echo "DNS[${DNS_Settings}]设置完成"
+-  else
+-    TIME r "因DNS获取有错误，DNS设置失败，请检查DNS是否填写正确"
+-  fi
+-fi
+-
+-if [[ "${Broadcast_Ipv4}" == "0" ]] || [[ -z "${Broadcast_Ipv4}" ]]; then
+-  echo "不进行,广播IP设置"
+-elif [[ -n "${Broadcast_Ipv4}" ]]; then
+-  IPv4_Bro="$(echo ${Broadcast_Ipv4} |grep -Eo "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")"
+-  if [[ -n "${IPv4_Bro}" ]]; then
+-    sed -i "$lan\set network.lan.broadcast='${Broadcast_Ipv4}'" "${GENE_PATH}"
+-    echo "广播IP[${Broadcast_Ipv4}]设置完成"
+-  else
+-    TIME r "因IPv4 广播IP获取有错误，IPv4广播IP设置失败，请检查IPv4广播IP是否填写正确"
+-  fi
+-fi
+-
+-if [[ "${Disable_DHCP}" == "1" ]]; then
+-   sed -i "$lan\set dhcp.lan.ignore='1'" "${GENE_PATH}"
+-   echo "关闭DHCP设置完成"
+-else
+-   echo "不进行,关闭DHCP设置"
+-fi
+-
+-if [[ "${Disable_Bridge}" == "1" ]]; then
+-   sed -i "$lan\delete network.lan.type" "${GENE_PATH}"
+-   echo "去掉桥接设置完成"
+-else
+-   echo "不进行,去掉桥接设"
+-fi
+-
+-if [[ "${Ttyd_account_free_login}" == "1" ]]; then
+-   sed -i "$lan\set ttyd.@ttyd[0].command='/bin/login -f root'" "${GENE_PATH}"
+-   echo "TTYD免账户登录完成"
+-else
+-   echo "不进行,TTYD免账户登录"
+-fi
+-
+ if [[ "${Password_free_login}" == "1" ]]; then
+    sed -i '/CYXluq4wUazHjmCDBCqXF/d' "${ZZZ_PATH}"
+    echo "固件免密登录设置完成"
+@@ -708,55 +622,61 @@
+ if [[ "${Enable_IPV6_function}" == "1" ]]; then
+   echo "编译IPV6固件"
+   echo "
+-    uci set network.lan.ip6assign='64'
+-    uci commit network
+-    uci set dhcp.lan.ra='server'
+-    uci set dhcp.lan.dhcpv6='server'
+-    uci set dhcp.lan.ra_management='1'
+-    uci set dhcp.lan.ra_default='1'
+-    uci set dhcp.@dnsmasq[0].localservice=0
+-    uci set dhcp.@dnsmasq[0].nonwildcard=0
+-    uci set dhcp.@dnsmasq[0].filter_aaaa='0'
+-    uci commit dhcp
++    uci set network.lan.ip6assign='64' || exit 1
++    uci commit network || exit 1
++    uci set dhcp.lan.ra='server' || exit 1
++    uci set dhcp.lan.dhcpv6='server' || exit 1
++    uci set dhcp.lan.ra_management='1' || exit 1
++    uci set dhcp.lan.ra_default='1' || exit 1
++    uci set dhcp.@dnsmasq[0].localservice=0 || exit 1
++    uci set dhcp.@dnsmasq[0].nonwildcard=0 || exit 1
++    uci set dhcp.@dnsmasq[0].filter_aaaa='0' || exit 1
++    uci commit dhcp || exit 1
+   " >> "${DEFAULT_PATH}"
+ elif [[ "${Create_Ipv6_Lan}" == "1" ]]; then
+   echo "爱快+OP双系统时,爱快接管IPV6,在OP创建IPV6的lan口接收IPV6信息"
+   echo "
+-    uci delete network.lan.ip6assign
+-    uci set network.lan.delegate='0'
+-    uci commit network
+-    uci delete dhcp.lan.ra
+-    uci delete dhcp.lan.ra_management
+-    uci delete dhcp.lan.ra_default
+-    uci delete dhcp.lan.dhcpv6
+-    uci delete dhcp.lan.ndp
+-    uci set dhcp.@dnsmasq[0].filter_aaaa='0'
+-    uci commit dhcp
+-    uci set network.ipv6=interface
+-    uci set network.ipv6.proto='dhcpv6'
+-    ${devicee}
+-    ${ifnamee}
+-    uci set network.ipv6.reqaddress='try'
+-    uci set network.ipv6.reqprefix='auto'
+-    uci commit network
+-    ${set_add}
+-    uci commit firewall
++    for option in network.lan.ip6assign; do
++      if uci -q get \"\$option\" >/dev/null; then
++        uci delete \"\$option\" || exit 1
++      fi
++    done
++    uci set network.lan.delegate='0' || exit 1
++    uci commit network || exit 1
++    for option in dhcp.lan.ra dhcp.lan.ra_management dhcp.lan.ra_default dhcp.lan.dhcpv6 dhcp.lan.ndp; do
++      if uci -q get \"\$option\" >/dev/null; then
++        uci delete \"\$option\" || exit 1
++      fi
++    done
++    uci set dhcp.@dnsmasq[0].filter_aaaa='0' || exit 1
++    uci commit dhcp || exit 1
++    uci set network.ipv6=interface || exit 1
++    uci set network.ipv6.proto='dhcpv6' || exit 1
++    ${devicee:+${devicee} || exit 1}
++    ${ifnamee:+${ifnamee} || exit 1}
++    uci set network.ipv6.reqaddress='try' || exit 1
++    uci set network.ipv6.reqprefix='auto' || exit 1
++    uci commit network || exit 1
++    ${set_add:+${set_add} || exit 1}
++    uci commit firewall || exit 1
+   " >> "${DEFAULT_PATH}"
+ elif [[ "${Enable_IPV4_function}" == "1" ]]; then
+   echo "编译IPV4固件"
+   echo "
+-    uci delete network.globals.ula_prefix
+-    uci delete network.lan.ip6assign
+-    uci delete network.wan6
+-    uci set network.lan.delegate='0' 
+-    uci commit network
+-    uci delete dhcp.lan.ra
+-    uci delete dhcp.lan.ra_management
+-    uci delete dhcp.lan.ra_default
+-    uci delete dhcp.lan.dhcpv6
+-    uci delete dhcp.lan.ndp
+-    uci set dhcp.@dnsmasq[0].filter_aaaa='1'
+-    uci commit dhcp
++    for option in network.globals.ula_prefix network.lan.ip6assign network.wan6; do
++      if uci -q get \"\$option\" >/dev/null; then
++        uci delete \"\$option\" || exit 1
++      fi
++    done
++    uci set network.lan.delegate='0' || exit 1
++    uci commit network || exit 1
++    for option in dhcp.lan.ra dhcp.lan.ra_management dhcp.lan.ra_default dhcp.lan.dhcpv6 dhcp.lan.ndp; do
++      if uci -q get \"\$option\" >/dev/null; then
++        uci delete \"\$option\" || exit 1
++      fi
++    done
++    uci set dhcp.@dnsmasq[0].filter_aaaa='1' || exit 1
++    uci commit dhcp || exit 1
+   " >> "${DEFAULT_PATH}"
+ fi
+ 
+@@ -1279,7 +1199,8 @@
  # 远程更新处理固件
  if [ "${UPDATE_FIRMWARE_ONLINE}" == "true" ]; then
    cd ${HOME_PATH}
@@ -112,3 +326,24 @@ diff --git a/common.sh b/common.sh
  fi
  # 编译完毕后,整理固件
  cd ${FIRMWARE_PATH}
+diff --git a/auto-scripts/files/99-first-run b/auto-scripts/files/99-first-run
+--- a/auto-scripts/files/99-first-run
++++ b/auto-scripts/files/99-first-run
+@@ -20,7 +20,7 @@
+ 	grep -q "danshui" /etc/apk/repositories.d/distfeeds.list && sed -i '/danshui/d' /etc/apk/repositories.d/distfeeds.list
+ 	grep -q "dstheme" /etc/apk/repositories.d/distfeeds.list && sed -i '/dstheme/d' /etc/apk/repositories.d/distfeeds.list
+ 	grep -q "OpenClash" /etc/apk/repositories.d/distfeeds.list && sed -i '/OpenClash/d' /etc/apk/repositories.d/distfeeds.list
+-	grep -q "helloworld" /etc/apk/repositories.d/distfeeds.list && ssed -i '/helloworld/d' /etc/apk/repositories.d/distfeeds.list
++	grep -q "helloworld" /etc/apk/repositories.d/distfeeds.list && sed -i '/helloworld/d' /etc/apk/repositories.d/distfeeds.list
+ 	grep -q "passwall" /etc/apk/repositories.d/distfeeds.list && sed -i '/passwall/d' /etc/apk/repositories.d/distfeeds.list
+ 	grep -q "x" /etc/apk/repositories.d/distfeeds.list && sed -i '/x\/packages/d' /etc/apk/repositories.d/distfeeds.list
+ else
+@@ -50,7 +50,7 @@
+ 
+ # 根据 /etc/index.htm 是否存在进行不同的修改
+ luci_web=/usr/lib/lua/luci/view/admin_status/index.htm
+-[ -f "$luci_web" ] && sed -i's#localtime.*=.*#localtime  = os.date("%Y-%m-%d") .. " " .. os.date("%X") .. " " .. translate(os.date("%A")),#g' "$luci_web"
++[ -f "$luci_web" ] && sed -i 's#localtime.*=.*#localtime  = os.date("%Y-%m-%d") .. " " .. os.date("%X") .. " " .. translate(os.date("%A")),#g' "$luci_web"
+ [ -f "$luci_web" ] && sed -i 's?(<%=pcdata(ver.luciversion)%>)?- <%=pcdata(ver.luciversion)%>?g' "$luci_web"
+ 
+ # 修改 /etc/profile 文件

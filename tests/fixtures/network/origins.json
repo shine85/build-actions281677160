@@ -1,0 +1,23 @@
+[
+  {
+    "version": "23.05",
+    "ref": "0f110722021a93e60e7442ceded7eaea67ff921b",
+    "blob": "cb4e6973756135cddd0dc45ab3a1ec764f036b1b",
+    "url": "https://github.com/immortalwrt/immortalwrt/blob/0f110722021a93e60e7442ceded7eaea67ff921b/package/base-files/files/bin/config_generate",
+    "bytes": 11929
+  },
+  {
+    "version": "24.10",
+    "ref": "99ca94091f",
+    "blob": "b32e19be7cd8baa4e8598eadc8e51f9f2ebf30a9",
+    "url": "https://github.com/immortalwrt/immortalwrt/blob/99ca94091f/package/base-files/files/bin/config_generate",
+    "bytes": 12053
+  },
+  {
+    "version": "25.12",
+    "ref": "3a0f609352e0b582fc670af865ad449a65b18e62",
+    "blob": "8e5e12030b9c12f3d19f1ac1c2c776a16b7af014",
+    "url": "https://github.com/immortalwrt/immortalwrt/blob/3a0f609352e0b582fc670af865ad449a65b18e62/package/base-files/files/bin/config_generate",
+    "bytes": 12167
+  }
+]

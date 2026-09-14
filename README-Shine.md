@@ -68,10 +68,11 @@ CONFIG_FILE="x86_64 x86_64_250"
 - `Default_theme=kucat` → `Diy_definition` 才会把 `uci set luci.main.mediaurlbase='/luci-static/kucat'` 写进 `package/auto-scripts/files/99-first-run`。`99-*` 比各主题自带的 `30_*` 晚执行，才压得住 `luci-theme-bootstrap` 的 `30_luci-theme-bootstrap`（它会把默认主题改回 bootstrap）。
 - `Mandatory_theme=kucat` → 才会把 luci / luci-light collection 的 `+luci-theme-*` 依赖改指 kucat。它要求 `grep -c "kucat=y" .config` **恰好为 1**；补回的两行是 `kucat-config=y`，不匹配 `kucat=y`，所以不影响这个判定。
 
-所以做法是保留两个变量为 `kucat`，在 `@need` 之后补回：
+所以保留两个变量为 `kucat`，在两阶段的 `@need` 之后统一调用 `tools/immortalwrt-plugins.cjs`：
 
-- 阶段一补进 `${CONFIG_TXT}`（`@trigger` 会把它拷成新 seed，保证仓库 seed 一直带着）
-- 阶段二补进 `.config` 并 `make defconfig`，然后核验主题、配置插件、语言包三项都为 `=y`，缺任一 `exit 1` 让编译当场失败，不静默放过
+- 先补回 `.config` 中的 kucat 三包，再执行 `make defconfig`，检查仓库原始 seed 明确选择的全部 LuCI 应用和主题。缺包立即失败，不能以两个阶段都丢包为由判定一致。
+- 阶段一生成 `${CONFIG_TXT}` 时保留这些显式请求，再由 `@trigger` 写回 seed；阶段二复用校验，不回写 seed。
+- 对 DIY 克隆的 kucat 源码，修复已核实的 ACL JSON 末尾多余括号。只接受已知原件的 SHA-256；上游修正后的合法 JSON 保持原样，其他 JSON 错误明确报错。
 
 ### 手动与矩阵验证（2026-09-09）
 
@@ -94,22 +95,116 @@ CONFIG_FILE="x86_64 x86_64_250"
 | `x86_64` | [Update-x86-x86_64](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64) | `x86-64-x86_64` |
 | `x86_64_250` | [Update-x86-x86_64_250](https://github.com/shine85/build-actions281677160/releases/tag/Update-x86-x86_64_250) | `x86-64-x86_64_250` |
 
-Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件仍指向原来的 `Update-x86` 共用通道，网页在线更新没有 6/250 配置选择框。首次迁移可下载对应新版，通过「系统 → 备份/升级 → 刷写固件」本地上传；也可在 SSH 中备份并修改 `/etc/openwrt_update`，同时设置上表对应的 `DEVICE_MODEL` 和 `RELEASE_DOWNLOAD`。
+Legacy、UEFI 的发布文件名、固件版本、下载通道和旧资产清理前缀均由同一标识生成。旧固件可能仍指向原来的 `Update-x86` 共用通道，网页在线更新没有 6/250 配置选择框；需要按下面的步骤迁移。仓库中的修改不会自动改写已经安装的系统。
 
-例如，旧机切换到 250 配置时，两项改为：
+#### 已安装旧系统：SSH 修改更新目标
+
+本节适用于本仓库的 **ImmortalWrt x86-64 固件**，机内须已有 `/usr/bin/AutoUpdate` 和 `/etc/openwrt_update`。第三方固件或没有这些文件的系统，使用后面的本地刷写方式，不要只创建一个同名文件冒充更新器。
+
+先 SSH 登录当前路由器，查看系统、更新设置和实际引导方式：
 
 ```sh
-DEVICE_MODEL="x86-64-x86_64_250"
-RELEASE_DOWNLOAD="$GITHUB_LINK/releases/download/Update-x86-x86_64_250"
+cat /etc/openwrt_release
+grep -E '^(GITHUB_LINK|FIRMWARE_VERSION|LUCI_EDITION|SOURCE|DEVICE_MODEL|RELEASE_DOWNLOAD)=' /etc/openwrt_update
+if [ -d /sys/firmware/efi ]; then echo uefi; else echo legacy; fi
 ```
 
-`GITHUB_LINK` 保持仓库首页地址，`FIRMWARE_VERSION` 保持本机真实版本。修改后清除旧索引缓存 `/tmp/api_version` 并在网页重新检测，核对候选文件的配置标识及 Legacy/UEFI 引导方式后再升级；仅修改网页的 GitHub 地址框或仅更改通道地址都不足以匹配新文件名。升级后核对上述两项确实属于新通道；仓库修改不会自动改写已经安装的旧固件。
+确认 `SOURCE="Immortalwrt"`，`GITHUB_LINK="https://github.com/shine85/build-actions281677160"`。网页的 GitHub 地址框应填仓库首页，不填 Release 页面；如果要修改仓库地址，先在 AutoUpdate 页面保存，避免其 UCI 设置随后覆盖文件中的地址。
+
+更改更新目标前关闭定时更新，备份配置，并把备份下载到电脑；`/tmp` 中的备份重启后会消失：
+
+```sh
+uci set autoupdate.@login[0].enable='0'
+uci commit autoupdate
+/etc/init.d/autoupdate stop
+sysupgrade -b /tmp/openwrt-before-upgrade.tar.gz
+```
+
+例如，在电脑终端执行 `scp root@192.168.250.2:/tmp/openwrt-before-upgrade.tar.gz .`，地址替换为当前实际管理地址。
+
+**实际要修改的是 `/etc/openwrt_update` 中的三项：** `DEVICE_MODEL` 选择 6/250 配置，`RELEASE_DOWNLOAD` 选择对应下载通道，`LUCI_EDITION` 选择目标系统系列。`FIRMWARE_VERSION` 是本机真实版本与编译时间戳，必须保留，不要为强行升级改成 `0` 或其他版本。
+
+下面以 **250 配置、目标 24.10** 为例。6 配置将变量改成 `UPGRADE_CONFIG="x86_64"`；升级 25.12 将变量改成 `UPGRADE_SERIES="25.12"`。这段只修改更新设置，不刷写固件：
+
+```sh
+(
+  set -eu
+  UPGRADE_CONFIG="x86_64_250"
+  UPGRADE_SERIES="24.10"
+  case "$UPGRADE_CONFIG" in x86_64|x86_64_250) ;; *) exit 1 ;; esac
+  case "$UPGRADE_SERIES" in 23.05|24.10|25.12) ;; *) exit 1 ;; esac
+  update_file=/etc/openwrt_update
+  for key in DEVICE_MODEL RELEASE_DOWNLOAD LUCI_EDITION; do
+    grep -q "^${key}=" "$update_file" || { echo "缺少字段：$key"; exit 1; }
+  done
+  backup_file="${update_file}.bak-$(date +%Y%m%d-%H%M%S)"
+  cp -p "$update_file" "$backup_file"
+  sed -i \
+    -e "s|^DEVICE_MODEL=.*|DEVICE_MODEL=\"x86-64-${UPGRADE_CONFIG}\"|" \
+    -e "s|^RELEASE_DOWNLOAD=.*|RELEASE_DOWNLOAD=\"\$GITHUB_LINK/releases/download/Update-x86-${UPGRADE_CONFIG}\"|" \
+    -e "s|^LUCI_EDITION=.*|LUCI_EDITION=\"${UPGRADE_SERIES}\"|" \
+    "$update_file"
+  printf '原设置已备份到 %s\n' "$backup_file"
+  grep -E '^(GITHUB_LINK|FIRMWARE_VERSION|LUCI_EDITION|SOURCE|DEVICE_MODEL|RELEASE_DOWNLOAD)=' "$update_file"
+)
+```
+
+只改 `LUCI_EDITION` 不会自动升级系统；只改下载地址而不改 `DEVICE_MODEL`，也无法正确匹配新文件名。修改后清除旧索引，再检测候选固件：
+
+```sh
+rm -f /tmp/api_version
+AutoUpdate
+```
+
+这里不带参数的 `AutoUpdate` 会联网检查，不执行固件下载和刷写。确认输出的“固件全名称”同时符合目标系列、配置和实际引导方式，例如 `24.10-Immortalwrt-x86-64-x86_64_250-<时间戳>-uefi-<校验串>.img.gz`。目标通道必须已经发布对应镜像；没有候选、配置不符或引导方式不符时不要升级。
+
+#### 23→24、24 同系列更新、24→25
+
+| 当前系统 → 目标 | `LUCI_EDITION` 目标值 | 配置与通道 | 配置保留建议 |
+| --- | --- | --- | --- |
+| 23.05 → 24.10 | `24.10` | 保持原来的 6 或 250 配置 | 建议备份后不保留配置，按需恢复插件设置 |
+| 24.10 → 最新 24.10 固件 | `24.10`，已正确则不用改 | 保持原配置、原独立通道 | 可保留配置；首次迁移旧网络缺陷时建议不保留 |
+| 24.10 → 25.12 | `25.12` | 保持原来的 6 或 250 配置 | 建议不保留配置；25.12 从 opkg 改用 APK，额外安装的软件需重新确认 |
+
+跨系列升级时，推荐从对应通道下载匹配的 `.img.gz`，在「系统 → 备份/升级 → 刷写固件」上传，关闭“保留配置”并核对镜像检查结果。网络修复只在首次生成配置时执行，保留旧 `/etc/config/network` 不会自动修正旧网关、DNS 或桥接设置；配置备份用于逐项恢复，不要跨系列直接还原整个旧配置包。
+
+同系列日常更新可在 AutoUpdate 页面核对候选后点升级，也可在 SSH 中选择下面**其中一个**命令。它们会实际下载、刷写并重启，请在备份完成且可接受断网时执行：
+
+```sh
+AutoUpdate -u   # 保留配置更新
+AutoUpdate -k   # 不保留配置更新
+```
+
+当前上游 AutoUpdate 最终使用 `sysupgrade -F`，因此跨系列优先使用上面的本地上传检查方式。它比较的是固件的**编译时间戳**：即使目标是 25.12，若目标镜像的编译时间戳早于本机固件，也会显示“云端低于本机”并退出；此时下载目标镜像本地刷写，不要伪造 `FIRMWARE_VERSION`。
+
+需要全程 SSH 本地刷写时，在电脑上把已下载且匹配配置/引导的镜像上传为 `/tmp/firmware.img.gz`，再在路由器执行：
+
+```sh
+sha256sum /tmp/firmware.img.gz
+sysupgrade -T /tmp/firmware.img.gz
+```
+
+核对 SHA-256 与对应 CI 验收报告一致，且 `-T` 检查成功后，再单独执行：
+
+```sh
+sysupgrade -n /tmp/firmware.img.gz
+```
+
+`-T` 只检查镜像；`-n` 才是不保留配置的刷写。检查失败就停止，不添加 `-F` 强行绕过。23.05→24.10、24.10→25.12 的上游迁移说明分别见 [OpenWrt 24.10](https://openwrt.org/releases/24.10/notes-24.10.0#upgrading_to_2410) 和 [OpenWrt 25.12](https://openwrt.org/releases/25.12/notes-25.12.0#upgrading_to_2512)；OpenWrt 官方不支持直接 23.05→25.12 的 sysupgrade，本仓库按逐级升级说明操作。
+
+#### 升级后与后续日常更新
+
+不保留配置时，6 配置从 `192.168.6.2` 登录，250 配置从 `192.168.250.2` 登录。重新检查 `/etc/openwrt_release`、上述三项更新字段，以及实际 LAN 网关/DNS；新固件应自带自己的系列和独立通道。后续 **24.10 更新 24.10** 或 **25.12 更新 25.12** 不用每次 SSH 改文件，直接检测并更新；切换系统系列才修改 `LUCI_EDITION`，切换 6/250 才同时修改设备标识和通道。
+
+恢复需要的插件配置、确认系统正常后，再按个人需要启用定时更新。这里的“最新包”指本仓库新编译的整套固件；额外手工安装的软件不会仅凭配置备份保留，升级后使用当前系列的软件源重新安装。
+
+#### 发布与校验实现
 
 发布改用本仓库的 `.github/actions/immortalwrt-release`：上传固件和上传索引都显式要求上传错误使任务失败；`tools/immortalwrt-release.cjs` 逐一核对远端固件状态、大小和 SHA-256，全部符合本地文件后才生成 `zzz_api`。旧固件清理只操作相同配置、源码版本与引导格式，保留最近一份旧版；权限、删除、查询失败均会传播，只有新通道尚不存在的明确 404 允许首次创建。
 
 发布标题直接显示网段与配置，例如 `AutoUpdate-x86 · 192.168.6.0/24 · x86_64` 和 `AutoUpdate-x86 · 192.168.250.0/24 · x86_64_250`。发布说明包含北京时间、网段、默认管理地址、网关，以及实际编入固件的 LuCI 插件和主题名称。
 
-`compile.yml` 在编译成功后、整理删除清单前生成说明：从本次输出目录的唯一 `.manifest` 读取已安装软件，从本次生效的 `DIY_PT2_SH` 读取网络设置并计算 CIDR。日期随每次编译更新，不固定为示例日期；插件列表不使用 seed 推测，不混入语言包和底层依赖。清单缺失、多设备清单或格式错误时明确失败；未自定义的网络项如实注明采用源码默认值。两次发布共用同一标题和说明，更新通道及固件文件名沿用前述匹配规则。同步上游后的补回工具也会恢复该说明步骤，并保证它位于清单清理之前。
+`compile.yml` 在编译成功后、整理删除清单前生成说明：插件来自本次输出目录的唯一 `.manifest`，x86 的网段、管理地址和网关来自实际启动验收，并再次核对镜像 SHA-256；DIY 用于核对预期值。日期记录实际 `make` 成功结束的时间。插件列表不使用 seed 推测，不混入语言包和底层依赖；清单异常、验收未完成或镜像发生变化时明确失败。非 x86 保留原有说明逻辑。两次发布共用同一标题和说明，更新通道及固件文件名沿用前述匹配规则。同步上游后的补回工具会恢复验收和说明步骤，并保证它们位于清单清理之前。
 
 环境部署直接执行修复后的 `${LINSHI_COMMON}/custom/ubuntu.sh`，补齐依赖列表丢失的续行符，移除已经 404 的重复短链安装入口；依赖安装失败立即结束。`KEEP_RELEASES="30"` 与 `KEEP_WORKFLOWS="30"` 均须保留有效设置，入口清理、固件整理和云端发布失败也会使任务失败。
 
@@ -125,11 +220,11 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 
 9 月 12 日旧版定时入口 `34659837575` 已真实完成两套编译。新修复的完整实跑结果见下方；实机启动未验证。cron 仍为北京时间每周六 06:05；[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)明确定时事件可能延迟或丢弃，仓库配置不能保证精确到点，9 月 12 日旧版实际在 07:55 触发。
 
-### 完整实跑验收（2026-09-13）
+### 24.10 编译与产物核对（2026-09-13）
 
 修复提交 `a15074d` 已推送，当时通过临时双配置入口触发了一次关闭通知的验收（该临时入口现已撤下）。[准备入口 #150](https://github.com/shine85/build-actions281677160/actions/runs/34702805888) 与两套独立编译均为 `completed/success`：
 
-| 配置 | 固件默认 IP / 网关 | 独立编译 | 完成时间（北京时间） |
+| 配置 | 编译配置中的 IP / 网关 | 独立编译 | 完成时间（北京时间） |
 |---|---|---|---|
 | `x86_64` | `192.168.6.2` / `192.168.6.1` | [#149](https://github.com/shine85/build-actions281677160/actions/runs/34703045031) | 9 月 13 日 00:32 |
 | `x86_64_250` | `192.168.250.2` / `192.168.250.1` | [#150](https://github.com/shine85/build-actions281677160/actions/runs/34703263236) | 9 月 13 日 00:37 |
@@ -138,7 +233,21 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 
 43 项本地回归通过。三份完整日志未再出现此前的清理空参数、依赖安装错误、下载 404、Mihomo 递归依赖或 make 失败记录。长期双配置列表和 6 网段原版 DIY 保持，通知仅在本次验收关闭。
 
-发布说明实现 `7ca7f18` 随后通过了 [准备入口 #151](https://github.com/shine85/build-actions281677160/actions/runs/34740140679) 的真实验收：[6 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740345460) 和 [250 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740553558) 均成功。CI 自动生成的时间、网段、8 个 LuCI 插件及 kucat 主题与两份新 rootfs 一致，四种 Legacy/UEFI 在线更新匹配均选中自身配置。正式入口移除测试选项后，仍以实际矩阵步骤验证手动单选、定时双配置及同步上游后的补回行为。
+发布说明实现 `7ca7f18` 随后通过了 [准备入口 #151](https://github.com/shine85/build-actions281677160/actions/runs/34740140679) 的编译验收：[6 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740345460) 和 [250 网段编译](https://github.com/shine85/build-actions281677160/actions/runs/34740553558) 均成功。CI 自动生成发布说明，8 个 LuCI 插件及 kucat 主题与两份 rootfs 的软件包清单一致，四种 Legacy/UEFI 在线更新匹配均选中自身配置。当时说明中的网络字段来自 DIY，不能证明启动后已生效。正式入口移除测试选项后，仍以实际矩阵步骤验证手动单选、定时双配置及同步上游后的补回行为。
+
+### 新旧版本兼容与启动验收（2026-09-14）
+
+[25.12 实跑](https://github.com/shine85/build-actions281677160/actions/runs/34758596276) 虽然编译成功，实际镜像缺少预期网关、DNS、关闭 DHCP 和去桥接设置，功能验收未通过。根因是旧补丁依赖 `config_generate` 的特定行格式，未命中也继续编译。
+
+网络修改统一到 `tools/immortalwrt-network.cjs` 和 `tools/immortalwrt-lan-defaults.sh`：在首次生成 network 的分支末尾执行 UCI 收尾，兼容 23.05/24.10 的独立地址/掩码与 25.12 的 CIDR 地址；已有网络配置保持原样。去桥接依据实际 LAN 设备和端口，多端口、共享桥或桥接 VLAN 必须明确处理，不能擅自丢弃端口。未知上游结构、无效或重复配置会中止编译。首次启动补丁同时修正 APK/opkg 相关命令、旧 LuCI 页面修改，以及可选 IPv6 键的删除和关键写入失败传播。
+
+x86 在发布前用 QEMU 分别启动本次 Legacy、UEFI 镜像，等待首次初始化和一次性重启结束，再验收实际 IPv4 地址、掩码、默认路由、DNS、DHCP 设置、LAN 下层桥接关系、首次启动脚本完成状态、所选 IPv6 模式、dnsmasq/uhttpd 服务、LuCI 登录页与 kucat 样式、实际安装的 LuCI 插件/主题。任一项失败会阻止后续发布；这些检查不改变已经安装在旧机器上的网络和升级地址。
+
+插件验收调用原生配置生成器及真实核心：HomeProxy、Nikki 在回环网络转发固定响应，FRPC 验证配置解析和受控拒连，防火墙检查实际规则；同时检查定时重启配置生成、kucat 配色应用、包管理查询和各应用的认证页面/资源。23.05 允许原生 `luci-app-opkg` 名称和旧 FRPC 的启动解析方式。AutoUpdate 主表单有远端检查副作用，因此仅检查只读状态入口。测试不安装重启任务，不执行刷写；报告明确保留真实浏览器操作、外部订阅、透明代理和 FRPC 远端隧道未测状态。
+
+验收报告通过 `IMMORTALWRT_RUNTIME_REPORT` 独立写到项目 `tmp/immortalwrt-runtime-verification.json`，以 `firmware-runtime-<配置>-<版本>-attempt-<运行尝试次数>` 单独上传到 Actions artifact，成功、失败和重跑都会保留独立证据。报告按编译时原始镜像名和 SHA-256 记录观测，避开上游的文件改名、全文替换及清理；发布镜像可以用 SHA-256 对应到报告。报告含失败记录、缺少完成时间或与镜像不匹配时，不允许用于生成发布说明。
+
+当前验收边界：23.05/24.10/25.12 均已完成覆盖 6/250 的真实 UCI 集成；24.10/6 与 25.12/250 的隔离测试副本分别通过 Legacy、UEFI 网络和基础服务验收。25.12 副本另已完成 8 个应用及 kucat 的本机功能与页面检查，发现并修复上游 ACL 错误。这些副本使用已有镜像，不能当作重新编译产物；六种源码/配置组合的完整编译验收仍在推进。尚未进行实机刷写，QEMU 结果不代替真实网卡、上游 IPv6 服务或各插件外部连接的实测。
 
 
 ## 四、相对上游改了哪些文件（含双配置定时与单网段切换）
@@ -152,6 +261,8 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 - `tools/immortalwrt-config.sh` — 矩阵生成、单配置准备、长期配置还原和 DIY 选择的统一实现（4 个命令：`matrix`/`prepare`/`restore`/`select`）
 - `tools/apply-custom-steps.sh` — 同步上游后维护两个 workflow 的自定义结构
 - `tools/prepare-immortalwrt.sh`、`tools/patches/immortalwrt-common.patch` — 上游副本的更新标识、依赖与补丁失败传播修复
+- `tools/immortalwrt-network.cjs`、`tools/immortalwrt-lan-defaults.sh` — 新旧网络生成器的统一 UCI 配置入口
+- `tools/immortalwrt-runtime.cjs`、`tools/immortalwrt-runtime-probe.sh`、`tools/immortalwrt-verification.cjs` — 双引导启动、实际观测、镜像哈希与报告校验
 - `.github/actions/immortalwrt-release/action.yml`、`tools/immortalwrt-release.cjs` — 上传失败传播、远端产物校验与索引生成
 - `.github/actions/immortalwrt-mishi/action.yml` — 固定上游准备动作，并显式接收矩阵配置
 - `build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch` — Kconfig 相互冲突消环
@@ -164,7 +275,7 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 | 文件 | 加了什么（按重要性排序） |
 |---|---|
 | `Immortalwrt.yml` | ① 新增 `plan` job（读取 `CONFIG_FILE` 生成 matrix）和动态 matrix 结构；② `concurrency` 同分支并发控制与 `max-parallel: 1`；③ 每个配置准备时 checkout 最新分支（`ref: ${{ github.ref }}`）；④ `@mishi` 前调用 `tools/immortalwrt-config.sh prepare`（临时单配置+选 DIY）；⑤ `@mishi` 后调用 `restore`（还原长期配置与原版 DIY）；⑥ `@need` 后的 kucat 补回步骤；⑦ 下拉保留 `x86_64_250` 和 `openwrt-25.12` 选项；⑧ 个人 `cron: 05 22 * * 5`、`INFORMATION_NOTICE: Telegram`、`KEEP_*: 30` |
-| `compile.yml` | ① 显式 checkout `github.sha`；② `@mishi` 前调用 `select`；③ `@need` 后核验 kucat 三包；④ `@mishi` 后应用上游修复，并执行修复后的部署脚本；⑤ 严格传播固件整理错误，使用本库可校验产物的发布动作 |
+| `compile.yml` | ① 显式 checkout `github.sha`；② `@mishi` 前调用 `select`；③ `@need` 后核验 kucat 三包；④ `@mishi` 后应用上游修复，并执行修复后的部署脚本；⑤ 记录编译完成时间，发布前验收双引导并单独保存报告；⑥ 严格传播固件整理错误，使用本库可校验产物的发布动作 |
 | `build/Immortalwrt/diy-part.sh` | 两个 kucat 插件源（`git clone`）、6 网段 IP（`192.168.6.2`）、`Mandatory_theme=kucat`、`Default_theme=kucat`、个性签名（`Op_name="Op-Shine"`） |
 | `build/Immortalwrt/seed/x86_64` | kucat 三件套（`luci-theme-kucat`、`luci-app-kucat-config`、`luci-i18n-kucat-config-zh-cn`）等选包 |
 | `build/Immortalwrt/settings.ini` | `CONFIG_FILE="x86_64 x86_64_250"` 作为默认长期定时列表（空格分隔，支持只填一个）；其他编译参数（`SOURCE_CODE`、`REPO_BRANCH`、通知开关等） |
@@ -250,7 +361,7 @@ git add .github/workflows/
 
 ### tools/apply-custom-steps.sh
 
-幂等，跑几次都不会重复插入。结构补回只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，另会统一升级仓库各工作流中的 checkout v4 引用；不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用、原有 kucat 步骤，以及新的上游修复调用、部署脚本路径和关键步骤失败传播。辅助脚本与两份补丁缺失时，检查必须失败；`--check` 发现旧 checkout 运行时也会失败，且不修改文件。
+幂等，跑几次都不会重复插入。结构补回只维护 `Immortalwrt.yml`、`compile.yml` 两个 workflow，另会统一升级仓库各工作流中的 checkout v4 引用；不依赖独立的 250 入口，也不修改 `settings.ini`、DIY 或 seed。维护范围包括 `plan`、并发控制、矩阵、checkout、调度兼容条件、`prepare` / `restore` / `select` 调用、原有 kucat 步骤，以及上游修复调用、部署脚本路径、编译时间、启动验收、独立报告上传和关键步骤失败传播。辅助脚本与两份补丁缺失时，检查必须失败；`--check` 发现旧 checkout 运行时也会失败，且不修改文件。
 
 ```bash
 bash tools/apply-custom-steps.sh           # 补回 workflow 结构
@@ -279,6 +390,7 @@ git commit
 5. 原有 `补回kucat...` 仍在 `@need` **之后**、`下载软件包` 之前；两个 workflow 都能被 `npx --yes js-yaml` 解析。
 6. `CONFIG_FILE` 长期列表、`openwrt-25.12` 下拉选项、通知与保留数按需保留；cron 仍为 `05 22 * * 5`，即北京时间每周六 06:05。
 7. 两个入口均在 `@mishi` 后调用 `prepare-immortalwrt.sh`；部署执行修复后的本地上游副本，整理以 `bash -e` 执行，发布使用本库 action；清理和上传不忽略失败，两个补丁及发布校验脚本仍存在。
+8. x86 的启动验收和报告上传位于固件整理之前；验收报告保存在独立路径，发布说明读取同一份报告；QEMU、OVMF 依赖和探针脚本齐全。
 
 ### 典型失误案例：批量删除诊断步骤时误删关键步骤（2026-09-09）
 
@@ -301,4 +413,4 @@ git commit
 6. **缺少 250 DIY 不是可以回落的情况。** 选择 `_250` 配置而缺少 `diy-part-250.sh` 必须失败，否则会把 250 配置错误编译成 6 网段。
 7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
 
-验证边界：新版已通过两套固件的完整 CI、实物解包和更新选择验证，尚未进行实机刷写/启动。旧固件的在线更新通道不会被仓库代码自动迁移，首次须本地上传对应新版，或通过 SSH 同时迁移更新通道与设备匹配标识，再核对升级候选。
+验证状态以“新旧版本兼容与启动验收”中的记录为准，历史 CI 成功不能代替启动验收。旧固件的在线更新通道不会被仓库代码自动迁移，首次须本地上传对应新版，或通过 SSH 同时迁移更新通道与设备匹配标识，再核对升级候选。

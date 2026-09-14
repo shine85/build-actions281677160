@@ -14,3 +14,4 @@
 /tools/patches/*.patch -whitespace
 /build/Immortalwrt/patches/*.patch -whitespace
 /tests/fixtures/common/* -whitespace
+/tests/fixtures/kucat-acl.invalid.json -whitespace

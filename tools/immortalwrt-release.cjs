@@ -2,6 +2,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { isIPv4 } = require('node:net');
+const { readSettings } = require('./immortalwrt-network.cjs');
+const { readVerifiedNetwork } = require('./immortalwrt-verification.cjs');
 
 function required(env, name) {
   if (!env[name]) throw new Error('缺少发布参数: ' + name);
@@ -31,8 +33,8 @@ function networkDetails(diy) {
   return { address, gateway, subnet };
 }
 
-// 在整理步骤删除 manifest 前读取实际安装清单；网络取本次生效的 DIY 配置。
-async function describeRelease({ env = process.env, now = new Date() } = {}) {
+// x86 的网络信息取实际启动验收结果，镜像哈希变化后旧报告不能继续使用。
+async function describeRelease({ env = process.env, now } = {}) {
   const directory = required(env, 'FIRMWARE_PATH');
   const manifests = (await fs.promises.readdir(directory)).filter(name => name.endsWith('.manifest'));
   if (manifests.length !== 1) throw new Error('固件 manifest 清单缺失或存在多个设备，无法确定插件列表');
@@ -47,13 +49,16 @@ async function describeRelease({ env = process.env, now = new Date() } = {}) {
   const apps = [...packages].filter(name => name.startsWith('luci-app-')).sort();
   const themes = [...packages].filter(name => name.startsWith('luci-theme-')).sort();
   const diy = await fs.promises.readFile(required(env, 'DIY_PT2_SH'), 'utf8');
-  const network = networkDetails(diy);
   const config = required(env, 'CONFIG_FILE');
   const board = required(env, 'TARGET_BOARD');
+  const network = board === 'x86' ? await readVerifiedNetwork({ directory, config, reportPath: env.IMMORTALWRT_RUNTIME_REPORT,
+    settings: { ...readSettings(diy), sourceVersion: env.LUCI_EDITION }, packages: [...packages] }) : networkDetails(diy);
+  const compiledDate = now || new Date(required(env, 'IMMORTALWRT_COMPILED_AT'));
+  if (Number.isNaN(compiledDate.getTime())) throw new Error('编译完成时间无效');
   const parts = Object.fromEntries(new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(now).map(part => [part.type, part.value]));
+  }).formatToParts(compiledDate).map(part => [part.type, part.value]));
   const compiledAt = `${parts.year}年${parts.month}月${parts.day}日 ${parts.hour}:${parts.minute}:${parts.second}（北京时间）`;
   const setting = value => value === '0' ? '使用源码默认配置' : '`' + value + '`';
   const body = [
