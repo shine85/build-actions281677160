@@ -13,6 +13,8 @@ const { checkPlugins } = require('./immortalwrt-plugin-runtime.cjs');
 const execute = promisify(execFile);
 const BOOT_TIMEOUT_MS = 8 * 60 * 1000;
 const STABLE_UPTIME_SECONDS = 75;
+// 限制旧 TCG 在暖重启搬移内核时需要处理的历史翻译块。
+const TCG_CACHE_MIB = 64;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -81,7 +83,7 @@ async function bootAndObserve({ baseImage, boot, settings, generator, work, qemu
   const overlay = path.join(work, 'test.qcow2');
   await command(qemuImg, ['create', '-f', 'qcow2', '-F', format, '-b', baseImage, overlay]);
   const network = vmNetwork(settings, generator);
-  const args = ['-machine', 'pc,accel=tcg', '-cpu', 'max', '-m', '512', '-smp', '2', '-display', 'none', '-serial', 'stdio', '-monitor', 'none'];
+  const args = ['-machine', 'pc', '-accel', 'tcg,tb-size=' + TCG_CACHE_MIB, '-cpu', 'max', '-m', '512', '-smp', '2', '-display', 'none', '-serial', 'stdio', '-monitor', 'none'];
   if (qemuData) args.push('-L', qemuData);
   if (boot === 'uefi') {
     check(ovmfCode && ovmfVars, '缺少 UEFI 验证固件');
