@@ -74,6 +74,12 @@ CONFIG_FILE="x86_64 x86_64_250"
 - 阶段一生成 `${CONFIG_TXT}` 时保留这些显式请求，再由 `@trigger` 写回 seed；阶段二复用校验，不回写 seed。
 - 对 DIY 克隆的 kucat 源码，修复已核实的 ACL JSON 末尾多余括号。只接受已知原件的 SHA-256；上游修正后的合法 JSON 保持原样，其他 JSON 错误明确报错。
 
+### 备用主题 Argon
+
+`x86_64` 与 `x86_64_250` 两套 seed 均启用 `CONFIG_PACKAGE_luci-theme-argon=y`，沿用上游已有的 Argon 源码。`Mandatory_theme` 和 `Default_theme` 继续设为 `kucat`，首次启动时由 `99-first-run` 最后设置默认主题；Argon 作为备用主题保留在选择列表中。
+
+刷入包含本次配置的新固件后，在「系统 → 系统 → 语言和界面」中选择 **Argon**，保存并应用即可切换；选择 **kucat** 可切回原主题。两阶段插件校验会检查 Argon 是否进入最终配置，并在生成 seed 时保留这项显式选择。
+
 ### 手动与矩阵验证（2026-09-09）
 
 - **手动选择单配置**：下拉框选 `x86_64` 或 `x86_64_250`，`tools/immortalwrt-config.sh matrix` 输出 `configs=["x86_64"]` 或 `["x86_64_250"]`，只编译选中的那个。
@@ -419,7 +425,7 @@ git commit
 
 ## 六、已知的坑
 
-1. **seed 每次编译后会被 CI 覆盖。** `Diy_prevent` 用 `diffconfig.sh` 生成 `CONFIG_TXT`，`@trigger` 再把它拷成 `seed/<机型>`。手写进 seed 的选包会被重排，变成依赖项的会直接消失——`luci-theme-argon` 就是这样在提交 `7891e6e` 里没的。多配置阶段一还必须 checkout 最新分支，否则后一个配置可能覆盖前一个刚回写的 seed。
+1. **seed 每次编译后会被 CI 覆盖。** `Diy_prevent` 用 `diffconfig.sh` 生成 `CONFIG_TXT`，`@trigger` 再把它拷成 `seed/<机型>`。旧流程会省略已成为依赖项的显式选包，`luci-theme-argon` 曾因此在提交 `7891e6e` 中消失；当前 `tools/immortalwrt-plugins.cjs` 会保留原 seed 明确选择的 LuCI 应用和主题。多配置阶段一仍须 checkout 最新分支，防止后一个配置覆盖前一个刚回写的 seed。
 2. **判断插件包名要看被 clone 的那个分支。** `git clone` 不带 `-b` 取默认分支。`luci-app-kucat-config` 的 `master` 里 `NAME:=kucat-config` → 包名 `luci-app-kucat-config`；它还有条 `main` 分支写的是 `NAME:=kucat` → 包名会变成 `luci-app-kucat`，符号名就不一样了。
 3. **推 workflow 改动不会触发编译。** `compile.yml` 只在 `build/Immortalwrt/relevance/start` 变化时触发；验证两个配置需分别手动选择，或等待定时按长期列表触发，单次手动运行不会遍历长期列表。
 4. **长期列表与本轮配置不是同一份状态。** 长期设置只改 `build/Immortalwrt/settings.ini`；`relevance/settings.ini` 必须是本轮单配置。手动选择不能改掉长期列表，`restore` 也不能把列表写进 `relevance/settings.ini`。
