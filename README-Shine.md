@@ -208,7 +208,7 @@ sysupgrade -n /tmp/firmware.img.gz
 
 环境部署直接执行修复后的 `${LINSHI_COMMON}/custom/ubuntu.sh`，补齐依赖列表丢失的续行符，移除已经 404 的重复短链安装入口；依赖安装失败立即结束。`KEEP_RELEASES="30"` 与 `KEEP_WORKFLOWS="30"` 均须保留有效设置，入口清理、固件整理和云端发布失败也会使任务失败。
 
-`build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch` 在首次 `make defconfig` 前修正 Kconfig 生成器：虚包 `select` 和相互冲突的去重共用同一 provider 顺序，避免默认变体的条件选择重新形成反向依赖。recipe 和原始包元数据中的双向冲突不变，保留 Nikki 与两个 Mihomo 变体。修复后的 23.05、24.10、25.12、master 生成器已通过真实 Kconfiglib 的 28 个场景、756 组状态验证；本次固件实际使用 24.10/opkg，未扩展 APK 后端。
+`build/Immortalwrt/patches/001-kconfig-reciprocal-conflicts.patch` 在首次 `make defconfig` 前修正 Kconfig 生成器：虚包 `select` 和相互冲突的去重共用同一 provider 顺序，避免默认变体的条件选择重新形成反向依赖。recipe 和原始包元数据中的双向冲突不变，保留 Nikki 与两个 Mihomo 变体。修复后的 23.05、24.10、25.12、master 生成器已通过真实 Kconfiglib 的 28 个场景、756 组状态验证。该补丁负责 Kconfig 依赖关系；23.05/24.10 的 opkg 与 25.12 的 APK 兼容由首次启动适配和运行验收覆盖，六组合实跑结果见下方。
 
 可重复检查：
 
@@ -237,7 +237,17 @@ actionlint .github/workflows/Immortalwrt.yml .github/workflows/compile.yml
 
 ### 新旧版本兼容与启动验收（2026-09-14）
 
-[25.12 实跑](https://github.com/shine85/build-actions281677160/actions/runs/34758596276) 虽然编译成功，实际镜像缺少预期网关、DNS、关闭 DHCP 和去桥接设置，功能验收未通过。根因是旧补丁依赖 `config_generate` 的特定行格式，未命中也继续编译。
+**23.05、24.10、25.12 × 6/250 六种组合已全部完成重新编译、双引导运行验收和发布，六份 CI 均为 `completed/success`，包括发布后的 Post 步骤。** 实际运行内核与完整 CI 记录如下：
+
+| 系列 | 实际内核 | 包管理器 | 6 配置 `x86_64` | 250 配置 `x86_64_250` |
+| --- | --- | --- | --- | --- |
+| 23.05 | `5.15.198` | opkg | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34838738970) | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34839217681) |
+| 24.10 | `6.6.151` | opkg | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34855869752) | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34856572816) |
+| 25.12 | `6.12.103` | APK | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34848287151) | [通过](https://github.com/shine85/build-actions281677160/actions/runs/34849896829) |
+
+六份独立运行报告和 12 个发布镜像均已实际下载并核对 SHA-256。两个更新通道最终的 `zzz_api` 已核对资产 ID、大小、哈希和下载地址；原样执行固件更新器的选包语句，三版本、两配置、两引导共 12 次都选中各自镜像。六份准备日志和六份编译日志均已检查，所查既有错误为 0。长期默认仍为 `openwrt-24.10`，两个配置的 seed 已回到本轮实际构建使用的 24.10 版本。
+
+此前 [25.12 实跑](https://github.com/shine85/build-actions281677160/actions/runs/34758596276) 虽然编译成功，实际镜像缺少预期网关、DNS、关闭 DHCP 和去桥接设置，功能验收未通过。根因是旧补丁依赖 `config_generate` 的特定行格式，未命中也继续编译；本轮已由下面的统一配置入口修复。
 
 网络修改统一到 `tools/immortalwrt-network.cjs` 和 `tools/immortalwrt-lan-defaults.sh`：在首次生成 network 的分支末尾执行 UCI 收尾，兼容 23.05/24.10 的独立地址/掩码与 25.12 的 CIDR 地址；已有网络配置保持原样。去桥接依据实际 LAN 设备和端口，多端口、共享桥或桥接 VLAN 必须明确处理，不能擅自丢弃端口。未知上游结构、无效或重复配置会中止编译。首次启动补丁同时修正 APK/opkg 相关命令、旧 LuCI 页面修改，以及可选 IPv6 键的删除和关键写入失败传播。
 
@@ -249,7 +259,9 @@ x86 在发布前用 QEMU 分别启动本次 Legacy、UEFI 镜像，等待首次�
 
 失败报告在 `failure.serial` 中保留完整脱敏串口；编译成功且启用 `UPLOAD_FIRMWARE` 的 x86 失败任务还会把原始 SquashFS 镜像和 manifest 上传为 `firmware-debug-<配置>-<版本>-attempt-<运行尝试次数>`，保留 3 天，后续发布仍被阻止。
 
-当前验收边界：23.05/24.10/25.12 均已完成覆盖 6/250 的真实 UCI 集成；24.10/6 与 25.12/250 的隔离测试副本分别通过 Legacy、UEFI 网络和基础服务验收。25.12 副本另已完成 8 个应用及 kucat 的本机功能与页面检查，发现并修复上游 ACL 错误。这些副本使用已有镜像，不能当作重新编译产物；六种源码/配置组合的完整编译验收仍在推进。尚未进行实机刷写，QEMU 结果不代替真实网卡、上游 IPv6 服务或各插件外部连接的实测。
+CI 旧版 QEMU 曾在暖重启后的 GRUB 内存搬移阶段极慢，`tools/immortalwrt-runtime.cjs` 已将 TCG 缓存固定为 `64 MiB`。同盘对照、原失败镜像的 Legacy/UEFI 复验和上述六组新 CI 均已验证该设置；启动超时和功能验收标准保持原值。
+
+当前验收边界：上述六组均使用本轮重新编译的真实产物，每份镜像经历首次初始化及自动重启，并完成网络、基础服务、8 个应用及 kucat 的本机功能与页面检查。尚未进行实机刷写或跨系列升级实测；QEMU 结果不代替真实网卡、上游 IPv6 服务、真实浏览器交互或各插件外部业务连接的实测。
 
 
 ## 四、相对上游改了哪些文件（含双配置定时与单网段切换）
