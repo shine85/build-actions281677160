@@ -247,6 +247,8 @@ x86 在发布前用 QEMU 分别启动本次 Legacy、UEFI 镜像，等待首次�
 
 验收报告通过 `IMMORTALWRT_RUNTIME_REPORT` 独立写到项目 `tmp/immortalwrt-runtime-verification.json`，以 `firmware-runtime-<配置>-<版本>-attempt-<运行尝试次数>` 单独上传到 Actions artifact，成功、失败和重跑都会保留独立证据。报告按编译时原始镜像名和 SHA-256 记录观测，避开上游的文件改名、全文替换及清理；发布镜像可以用 SHA-256 对应到报告。报告含失败记录、缺少完成时间或与镜像不匹配时，不允许用于生成发布说明。
 
+失败报告在 `failure.serial` 中保留完整脱敏串口；编译成功且启用 `UPLOAD_FIRMWARE` 的 x86 失败任务还会把原始 SquashFS 镜像和 manifest 上传为 `firmware-debug-<配置>-<版本>-attempt-<运行尝试次数>`，保留 3 天，后续发布仍被阻止。
+
 当前验收边界：23.05/24.10/25.12 均已完成覆盖 6/250 的真实 UCI 集成；24.10/6 与 25.12/250 的隔离测试副本分别通过 Legacy、UEFI 网络和基础服务验收。25.12 副本另已完成 8 个应用及 kucat 的本机功能与页面检查，发现并修复上游 ACL 错误。这些副本使用已有镜像，不能当作重新编译产物；六种源码/配置组合的完整编译验收仍在推进。尚未进行实机刷写，QEMU 结果不代替真实网卡、上游 IPv6 服务或各插件外部连接的实测。
 
 

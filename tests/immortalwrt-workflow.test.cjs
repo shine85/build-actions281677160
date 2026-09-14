@@ -100,6 +100,7 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
     text = text.replace(/    - name: 生成发布标题和插件说明\n[\s\S]*?(?=    - name:|$)/, '');
     text = text.replace(/    - name: 启动固件并验收网络和插件\n[\s\S]*?(?=    - name:|$)/, '');
     text = text.replace(/    - name: 保存固件运行验收报告\n[\s\S]*?(?=    - name:|$)/, '');
+    text = text.replace(/    - name: 保存失败固件诊断镜像\n[\s\S]*?(?=    - name:|$)/, '');
     const oldPluginStep = file === first ? '补回kucat配置插件到即将写入seed的配置' : '补回kucat配置插件并核验kucat必须存在';
     text = text.replace(/    - name: 补回kucat并核验所选插件\n[\s\S]*?(?=    - name:|$)/,
       '    - name: ' + oldPluginStep + '\n      run: echo old-kucat-only-check\n\n');
@@ -164,6 +165,28 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.notEqual(nameForAttempt(1), nameForAttempt(2), '重跑必须保留独立验收报告，不能撞上首次 artifact 名称');
   assert.ok(two.indexOf(runtime) < two.indexOf(runtimeReport));
   assert.ok(two.indexOf(runtimeReport) < two.indexOf('    - name: 整理固件文件夹(需配合diy-part.sh设定使用)'));
+  const debugFirmware = step(two, '保存失败固件诊断镜像');
+  const debugCondition = new Function('failure', 'steps', 'env', 'return ' + debugFirmware.match(/^      if: (.+)$/m)[1]);
+  for (const [failed, outcome, board, upload, expected] of [
+    [true, 'success', 'x86', 'true', true],
+    [false, 'success', 'x86', 'true', false],
+    [true, 'failure', 'x86', 'true', false],
+    [true, 'success', 'armsr', 'true', false],
+    [true, 'success', 'x86', 'false', false],
+  ]) {
+    assert.equal(debugCondition(() => failed, { compile: { outcome } }, { TARGET_BOARD: board, UPLOAD_FIRMWARE: upload }), expected,
+      '诊断镜像上传条件错误: ' + JSON.stringify({ failed, outcome, board, upload }));
+  }
+  assert.equal(debugFirmware.match(/^      uses: ([^ #\n]+)/m)[1], 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
+  assert.equal(debugFirmware.match(/^        name: (.+)$/m)[1], 'firmware-debug-${{ env.CONFIG_FILE }}-${{ env.LUCI_EDITION }}-attempt-${{ github.run_attempt }}');
+  assert.deepEqual([...debugFirmware.matchAll(/^          (.+)$/gm)].map(match => match[1]), [
+    '${{ env.FIRMWARE_PATH }}/*-squashfs-combined*.img.gz', '${{ env.FIRMWARE_PATH }}/*.manifest',
+  ]);
+  assert.equal(debugFirmware.match(/^        if-no-files-found: (.+)$/m)[1], 'error');
+  assert.equal(debugFirmware.match(/^        retention-days: (.+)$/m)[1], '3');
+  assert.ok(!debugFirmware.includes('continue-on-error:'));
+  assert.ok(two.indexOf(runtimeReport) < two.indexOf(debugFirmware));
+  assert.ok(two.indexOf(debugFirmware) < two.indexOf(description));
   assert.ok(two.indexOf(runtime) < two.indexOf(description));
   assert.ok(!runtime.includes('continue-on-error:'));
   assert.ok(step(two, '开始编译固件').includes('IMMORTALWRT_COMPILED_AT='));

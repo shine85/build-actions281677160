@@ -135,6 +135,17 @@ jobs:
         path: ${{ env.IMMORTALWRT_RUNTIME_REPORT }}
         if-no-files-found: error
 
+    - name: 保存失败固件诊断镜像
+      if: failure() && steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86' && env.UPLOAD_FIRMWARE == 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: firmware-debug-${{ env.CONFIG_FILE }}-${{ env.LUCI_EDITION }}-attempt-${{ github.run_attempt }}
+        path: |
+          ${{ env.FIRMWARE_PATH }}/*-squashfs-combined*.img.gz
+          ${{ env.FIRMWARE_PATH }}/*.manifest
+        if-no-files-found: error
+        retention-days: 3
+
     - name: 生成发布标题和插件说明
       if: steps.compile.outcome == 'success' && env.UPDATE_FIRMWARE_ONLINE == 'true'
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

@@ -225,7 +225,7 @@ async function verifyFirmware({ env = process.env, ...options } = {}) {
     const serialPath = currentWork && path.join(currentWork, 'serial.log');
     report.failure = { ...currentImage, message: error.message,
       observed: observedPath && fs.existsSync(observedPath) ? JSON.parse(await fs.promises.readFile(observedPath, 'utf8')) : null,
-      serialTail: serialPath && fs.existsSync(serialPath) ? (await fs.promises.readFile(serialPath, 'utf8')).slice(-6000) : '' };
+      serial: serialPath && fs.existsSync(serialPath) ? await fs.promises.readFile(serialPath, 'utf8') : '' };
     try { await fs.promises.writeFile(reportPath, JSON.stringify(report, null, 2) + '\n'); }
     catch (writeError) { console.error('保存失败验收记录失败: ' + writeError.message); }
     console.error(JSON.stringify({ boot: currentImage?.boot, error: error.message, observed: report.failure.observed?.uci }));

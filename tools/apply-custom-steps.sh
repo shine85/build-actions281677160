@@ -174,6 +174,21 @@ frag_runtime_report(){ cat > "$TMPD/f" <<'FRAG'
 FRAG
 }
 
+frag_debug_firmware(){ cat > "$TMPD/f" <<'FRAG'
+
+    - name: 保存失败固件诊断镜像
+      if: failure() && steps.compile.outcome == 'success' && env.TARGET_BOARD == 'x86' && env.UPLOAD_FIRMWARE == 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: firmware-debug-${{ env.CONFIG_FILE }}-${{ env.LUCI_EDITION }}-attempt-${{ github.run_attempt }}
+        path: |
+          ${{ env.FIRMWARE_PATH }}/*-squashfs-combined*.img.gz
+          ${{ env.FIRMWARE_PATH }}/*.manifest
+        if-no-files-found: error
+        retention-days: 3
+FRAG
+}
+
 frag_compile_timestamp(){ cat > "$TMPD/f" <<'FRAG'
         make -j$(nproc) || make -j1 V=s
         printf 'IMMORTALWRT_COMPILED_AT=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
@@ -402,10 +417,12 @@ insert_step "$W2" "启动固件并验收网络和插件" '      uses: 281677160/
 replace_command "$W2" '      run: node tools/immortalwrt-runtime.cjs' \
   '        export IMMORTALWRT_RUNTIME_REPORT="$GITHUB_WORKSPACE/tmp/immortalwrt-runtime-verification.json"' frag_runtime_command "独立运行验收报告路径"
 insert_step "$W2" "保存固件运行验收报告" '        node tools/immortalwrt-runtime.cjs' frag_runtime_report
+insert_step "$W2" "保存失败固件诊断镜像" '        if-no-files-found: error' frag_debug_firmware
 replace_command "$W2" '        make -j$(nproc) || make -j1 V=s' \
   "        printf 'IMMORTALWRT_COMPILED_AT=%s\\n' \"\$(date -u +'%Y-%m-%dT%H:%M:%SZ')\" >> \"\$GITHUB_ENV\"" frag_compile_timestamp "编译完成时间记录"
 ensure_strict_step "$W2" "启动固件并验收网络和插件"
 ensure_strict_step "$W2" "保存固件运行验收报告"
+ensure_strict_step "$W2" "保存失败固件诊断镜像"
 ensure_strict_step "$W2" "生成发布标题和插件说明"
 ensure_strict_step "$W2" "整理固件文件夹(需配合diy-part.sh设定使用)"
 ensure_strict_step "$W2" "发送[在线更新固件]至云端"
