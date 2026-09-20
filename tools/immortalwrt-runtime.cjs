@@ -7,7 +7,7 @@ const { pipeline } = require('node:stream/promises');
 const { execFile, spawn } = require('node:child_process');
 const { promisify, parseArgs } = require('node:util');
 const { readSettings } = require('./immortalwrt-network.cjs');
-const { validateObservation, sha256 } = require('./immortalwrt-verification.cjs');
+const { parseFirmwareManifest, validateObservation, sha256 } = require('./immortalwrt-verification.cjs');
 const { checkPlugins } = require('./immortalwrt-plugin-runtime.cjs');
 
 const execute = promisify(execFile);
@@ -188,10 +188,7 @@ async function verifyFirmware({ env = process.env, ...options } = {}) {
   const filenames = await fs.promises.readdir(directory);
   const manifests = filenames.filter(name => name.endsWith('.manifest'));
   check(manifests.length === 1, '无法唯一读取固件 manifest');
-  const packages = (await fs.promises.readFile(path.join(directory, manifests[0]), 'utf8')).trim().split(/\r?\n/).map(line => {
-    const match = line.match(/^([a-z0-9][a-z0-9+_.-]*) - \S.*$/);
-    check(match, '固件 manifest 格式错误'); return match[1];
-  });
+  const packages = parseFirmwareManifest(await fs.promises.readFile(path.join(directory, manifests[0]), 'utf8'));
   const repo = await fs.promises.realpath(path.resolve(__dirname, '..'));
   const tmp = path.join(repo, 'tmp');
   await fs.promises.mkdir(tmp, { recursive: true });

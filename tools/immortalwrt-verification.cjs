@@ -8,6 +8,20 @@ const { validatePluginResults } = require('./immortalwrt-plugin-runtime.cjs');
 const REPORT_NAME = 'immortalwrt-runtime-verification.json';
 const fail = message => { throw new Error('固件运行验收失败: ' + message); };
 const sameValues = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+const PACKAGE_LINE = /^([A-Za-z0-9][A-Za-z0-9+_.-]*) - \S.*$/;
+
+function parseFirmwareManifest(text) {
+  const packages = [];
+  for (const line of String(text).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(PACKAGE_LINE);
+    if (!match) throw new Error('固件 manifest 格式错误');
+    packages.push(match[1]);
+  }
+  if (!packages.length) throw new Error('固件 manifest 清单为空');
+  return packages;
+}
 
 function validateObservation(observed, expected, manifestPackages) {
   if (observed?.board?.release?.target !== 'x86/64' || !observed.board.kernel) fail('缺少实际启动的系统信息');
@@ -102,4 +116,4 @@ async function readVerifiedNetwork({ directory, reportPath, config, settings, pa
   return network;
 }
 
-module.exports = { REPORT_NAME, validateObservation, readVerifiedNetwork, sha256 };
+module.exports = { REPORT_NAME, parseFirmwareManifest, validateObservation, readVerifiedNetwork, sha256 };

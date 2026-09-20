@@ -209,6 +209,30 @@ test('源码补丁失败会中止后续准备操作', () => {
   assert.ok(!result.stdout.includes('unexpected-continue'));
 });
 
+test('24.10 也会删除未选用的 qmodem，避免 next 语言包把大写包名编进固件', () => {
+  const f = fixture();
+  prepare(f);
+  const qmodem = path.join(f.home, 'feeds/danshui/luci-app-qmodem');
+  const fan = path.join(f.home, 'feeds/danshui/luci-app-fancontrol');
+  const quectel = path.join(f.home, 'feeds/danshui/relevance/quectel_cm-5G');
+  for (const dir of [qmodem, fan, quectel]) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(qmodem, 'Makefile'), 'PKG_NAME:=luci-app-qmodem\n');
+  fs.writeFileSync(path.join(fan, 'Makefile'), 'PKG_NAME:=luci-app-fancontrol\n');
+  fs.writeFileSync(path.join(quectel, 'Makefile'), 'PKG_NAME:=quectel-CM-5G\n');
+  const source = fs.readFileSync(path.join(f.common, 'common.sh'), 'utf8');
+  const start = source.indexOf('if [[ ! "${REPO_BRANCH}" =~ ^(main|master|(openwrt-)?(24\\.10))$ ]]; then');
+  const qmodemRm = source.lastIndexOf('rm -rf ${HOME_PATH}/feeds/danshui/luci-app-qmodem');
+  assert.ok(start >= 0 && qmodemRm > start, '缺少 24.10 qmodem 清理逻辑');
+  const end = source.indexOf('\n\n', qmodemRm);
+  succeed(bash(source.slice(start, end > qmodemRm ? end : qmodemRm + 200) + '\n', [], {
+    cwd: f.home,
+    env: { ...f.env, REPO_BRANCH: 'openwrt-24.10', HOME_PATH: unix(f.home) },
+  }));
+  assert.equal(fs.existsSync(qmodem), false);
+  assert.equal(fs.existsSync(quectel), false);
+  assert.equal(fs.existsSync(fan), true);
+});
+
 test('保留数为零仍是有效的显式配置', () => {
   const f = fixture('x86_64', { KEEP_RELEASES: '0', KEEP_WORKFLOWS: '0' });
   prepare(f);

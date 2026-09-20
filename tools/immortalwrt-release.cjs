@@ -3,7 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { isIPv4 } = require('node:net');
 const { readSettings } = require('./immortalwrt-network.cjs');
-const { readVerifiedNetwork } = require('./immortalwrt-verification.cjs');
+const { parseFirmwareManifest, readVerifiedNetwork } = require('./immortalwrt-verification.cjs');
 
 function required(env, name) {
   if (!env[name]) throw new Error('缺少发布参数: ' + name);
@@ -39,13 +39,7 @@ async function describeRelease({ env = process.env, now } = {}) {
   const manifests = (await fs.promises.readdir(directory)).filter(name => name.endsWith('.manifest'));
   if (manifests.length !== 1) throw new Error('固件 manifest 清单缺失或存在多个设备，无法确定插件列表');
   const manifest = await fs.promises.readFile(path.join(directory, manifests[0]), 'utf8');
-  const packages = new Set();
-  for (const line of manifest.split(/\r?\n/).filter(line => line.trim())) {
-    const match = line.match(/^([a-z0-9][a-z0-9+_.-]*) - \S.*$/);
-    if (!match) throw new Error('固件 manifest 清单格式错误');
-    packages.add(match[1]);
-  }
-  if (!packages.size) throw new Error('固件 manifest 清单为空');
+  const packages = new Set(parseFirmwareManifest(manifest));
   const apps = [...packages].filter(name => name.startsWith('luci-app-')).sort();
   const themes = [...packages].filter(name => name.startsWith('luci-theme-')).sort();
   const diy = await fs.promises.readFile(required(env, 'DIY_PT2_SH'), 'utf8');

@@ -95,6 +95,17 @@ diff --git a/custom/ubuntu.sh b/custom/ubuntu.sh
 diff --git a/common.sh b/common.sh
 --- a/common.sh
 +++ b/common.sh
+@@ -232,9 +232,9 @@ done
+ 
+ if [[ ! "${REPO_BRANCH}" =~ ^(main|master|(openwrt-)?(24\.10))$ ]]; then
+   rm -rf ${HOME_PATH}/feeds/danshui/luci-app-fancontrol
++fi
+   rm -rf ${HOME_PATH}/feeds/danshui/luci-app-qmodem
+   rm -rf ${HOME_PATH}/feeds/danshui/relevance/quectel_cm-5G
+-fi
+ 
+ if [[ "${REPO_BRANCH}" =~ ^(2410|(openwrt-)?(24\.10))$ ]]; then
+   rm -rf ${HOME_PATH}/feeds/danshui/luci-app-quickstart
 @@ -272,7 +272,7 @@
  
  # files大法，设置固件无烦恼

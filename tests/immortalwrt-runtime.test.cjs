@@ -20,6 +20,19 @@ function observation() {
 }
 function validate(value) { return require('../tools/immortalwrt-verification.cjs').validateObservation(value, expected, packages); }
 
+test('固件 manifest 接受 OpenWrt 合法大小写包名，拒绝无版本行', () => {
+  const { parseFirmwareManifest } = require('../tools/immortalwrt-verification.cjs');
+  assert.equal(typeof parseFirmwareManifest, 'function');
+  assert.deepEqual(parseFirmwareManifest([
+    'luci-app-ssr-plus - 1.0-r1',
+    'quectel-CM-5G - 1.6.5-1',
+    'luci-i18n-qmodem-next-zh_Hans - 1.0-r3',
+    '',
+  ].join('\n')), ['luci-app-ssr-plus', 'quectel-CM-5G', 'luci-i18n-qmodem-next-zh_Hans']);
+  assert.throws(() => parseFirmwareManifest('luci-app-imaginary\n'), /manifest/);
+  assert.throws(() => parseFirmwareManifest('\n'), /空/);
+});
+
 test('运行验收按实际接口、路由和服务状态生成网络信息', () => {
   const network = validate(observation());
   assert.equal(network.address, '192.168.250.2');
