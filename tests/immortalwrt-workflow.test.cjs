@@ -194,6 +194,15 @@ test('同步覆盖后能恢复修复调用及失败传播，重复运行不产�
   assert.ok(two.indexOf(description) > two.indexOf('    - name: 开始编译固件'));
   assert.ok(two.indexOf(description) < two.indexOf('    - name: 整理固件文件夹(需配合diy-part.sh设定使用)'), '清单删除前必须生成说明');
   assert.ok(step(two, '发送[在线更新固件]至云端').includes('uses: ./.github/actions/immortalwrt-release'));
+  const trigger = step(one, '触发启动"${{ matrix.target }}"开始编译');
+  assert.ok(trigger.includes("INFORMATION_NOTICE: 'false'"), '触发启动不能发送开始编译通知');
+  assert.ok(!trigger.includes('请耐心等待'));
+  const failedNotice = step(two, '编译失败通知');
+  assert.ok(failedNotice.includes('failure()'));
+  assert.ok(failedNotice.includes('编译失败'));
+  assert.ok(failedNotice.includes('api.telegram.org'));
+  assert.ok(step(two, '上传,发布,信息通知').includes('uses: 281677160/common@uploads'));
+  assert.ok(two.indexOf('    - name: 上传,发布,信息通知') < two.indexOf('    - name: 编译失败通知'));
   assert.ok(one.includes("cron: '05 22 * * 5'"), '长期定时不能被补回操作改写');
 
   const again = run(false);

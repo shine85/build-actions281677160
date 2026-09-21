@@ -196,4 +196,6 @@ jobs:
 
     - name: 触发启动"${{ matrix.target }}"开始编译
       if: steps.info.outcome == 'success'
+      env:
+        INFORMATION_NOTICE: 'false'
       uses: 281677160/common@trigger

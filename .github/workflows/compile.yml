@@ -169,3 +169,16 @@ jobs:
     - name: 上传,发布,信息通知
       if: steps.compile.outcome == 'success'
       uses: 281677160/common@uploads
+
+    - name: 编译失败通知
+      if: failure() && ((env.INFORMATION_NOTICE == 'TG' && env.TELEGRAM_BOT_TOKEN) || (env.INFORMATION_NOTICE == 'PUSH' && env.PUSH_PLUS_TOKEN))
+      continue-on-error: true
+      run: |
+        TZ_Message="$(date +%Y年%m月%d号%H时%M分)"
+        TEXT="${SOURCE}-${LUCI_EDITION}，${TARGET_PROFILE}固件，编译失败，(${WAREHOUSE_MAN}-#${RUN_NUMBER})，${TZ_Message}"
+        if [[ "${INFORMATION_NOTICE}" == "TG" ]]; then
+          curl -sS -X POST -H "Content-Type: application/json" -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":\"${TEXT}\"}" "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+        fi
+        if [[ "${INFORMATION_NOTICE}" == "PUSH" ]]; then
+          curl -sS -X POST -H "Content-Type: application/json" -d "{\"token\":\"${PUSH_PLUS_TOKEN}\",\"title\":\"${SOURCE}-${LUCI_EDITION}\",\"content\":\"${TEXT}\"}" "https://www.pushplus.plus/send"
+        fi
