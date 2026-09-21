@@ -112,6 +112,58 @@ test('在构建之前修复上游 kucat ACL 的多余括号，保留原权限且
   assert.equal(fs.readFileSync(f.acl, 'utf8'), repaired);
 });
 
+test('双配置 seed 显式关闭 qmodem，请求列表不含未勾选插件', () => {
+  const { requestedPlugins } = require('../tools/immortalwrt-plugins.cjs');
+  for (const name of ['x86_64', 'x86_64_250']) {
+    const seed = fs.readFileSync(path.join(repo, 'build/Immortalwrt/seed', name), 'utf8');
+    assert.match(seed, /# CONFIG_PACKAGE_luci-app-qmodem is not set/);
+    assert.match(seed, /# CONFIG_PACKAGE_luci-app-qmodem-next is not set/);
+    assert.deepEqual(requestedPlugins(seed).filter(item => /^luci-app-[a-z0-9-]+$/.test(item)), [
+      'luci-app-autoreboot', 'luci-app-frpc', 'luci-app-homeproxy', 'luci-app-kucat-config', 'luci-app-nikki',
+    ]);
+  }
+});
+
+test('defconfig 自动勾上的 luci-app 必须关掉，不能编进固件', () => {
+  const f = fixture();
+  let makes = 0;
+  const run = (file) => {
+    if (file !== 'make') return { status: 0 };
+    makes++;
+    const configPath = path.join(f.home, '.config');
+    const config = fs.readFileSync(configPath, 'utf8');
+    if (makes === 1) {
+      fs.writeFileSync(configPath, config + lines(['luci-app-qmodem-next', 'luci-i18n-qmodem-next-zh_Hans', 'luci-app-firewall']));
+      return { status: 0 };
+    }
+    assert.match(config, /# CONFIG_PACKAGE_luci-app-qmodem-next is not set/);
+    assert.match(config, /# CONFIG_PACKAGE_luci-i18n-qmodem-next-zh_Hans is not set/);
+    assert.doesNotMatch(config, /^CONFIG_PACKAGE_luci-app-qmodem-next=y/m);
+    fs.writeFileSync(configPath, config.replace('# CONFIG_PACKAGE_luci-app-firewall is not set', 'CONFIG_PACKAGE_luci-app-firewall=y'));
+    return { status: 0 };
+  };
+  const result = invoke(f, { run });
+  assert.equal(makes, 2);
+  assert.ok(!result.includes('luci-app-qmodem-next'));
+  const final = fs.readFileSync(path.join(f.home, '.config'), 'utf8');
+  assert.match(final, /^CONFIG_PACKAGE_luci-app-firewall=y/m);
+  assert.doesNotMatch(final, /^CONFIG_PACKAGE_luci-app-qmodem-next=y/m);
+});
+
+test('第二轮 defconfig 仍勾上未请求插件时必须失败', () => {
+  const f = fixture();
+  let makes = 0;
+  const run = () => {
+    makes++;
+    const configPath = path.join(f.home, '.config');
+    const config = fs.readFileSync(configPath, 'utf8');
+    fs.writeFileSync(configPath, config + lines(['luci-app-qmodem-next', ...kucat, 'luci-app-frpc', 'luci-app-homeproxy']));
+    return { status: 0 };
+  };
+  assert.throws(() => invoke(f, { run }), /未请求的插件|qmodem-next/);
+  assert.equal(makes, 2);
+});
+
 test('合法 ACL 保持原样，未知损坏不能被当作已知上游问题自动改写', () => {
   const f = fixture();
   const original = fs.readFileSync(f.acl, 'utf8');
