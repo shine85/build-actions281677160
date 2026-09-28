@@ -434,3 +434,16 @@ git commit
 7. **本地备份与记录不应提交。** `.gitignore` 已忽略 `BK/`、`memory/`、`tmp/`；提交仍应按真实改动选择文件，别用 `git add .` 混入协作中的其他改动。
 
 验证状态以“新旧版本兼容与启动验收”中的记录为准，历史 CI 成功不能代替启动验收。旧固件的在线更新通道不会被仓库代码自动迁移，首次须本地上传对应新版，或通过 SSH 同时迁移更新通道与设备匹配标识，再核对升级候选。
+
+### 上游 feed 演进触发核验失败时的信号对照
+
+`tools/immortalwrt-plugins.cjs` 是「严格核验」设计：发现异常即 `exit 1`，宁可停下也不产出缺主题 / 混入未请求插件的固件。上游 immortalwrt feed 自行演进（每次 CI 拉最新，**不是**主动同步 build-actions）就可能触发下列失败，均会打印明确中文原因，照此定位：
+
+| 失败提示 | 触发原因 | 处理 |
+|---|---|---|
+| `未请求的插件进入最终配置: luci-app-xxx` | 上游硬塞了一个**独立**新插件（包名不含下划线）且 defconfig 关不掉 | 在对应 `seed/<机型>` 里显式 `# CONFIG_PACKAGE_luci-app-xxx is not set`；确实要用就并入白名单 |
+| `请求的插件未进入最终配置: xxx` | kucat 等请求的包改了名或从 feed 消失 | 核对来源仓库新包名，同步改 seed 与脚本 `KUCAT_PACKAGES` |
+| `kucat ACL 出现未知 JSON 错误` | sirpdboy 改了 `luci-theme-kucat` 的 ACL 文件内容 | 上游已修好则自动放行；否则更新 `repairKucatAcl` 第 18 行 sha256 或修复逻辑 |
+| `对比版本号文件下载失败` | 上游 `281677160/common` clone 失败或改动 | 多为偶发网络，重跑；持续失败查 common 仓库 |
+
+已通用解决、**不会再触发**的：`luci-app-<包>_<子选项>` 这类带下划线的 Kconfig 子选项（如 `luci-app-ssr-plus_INCLUDE_Xray`）随父包自动增删，`enabledLuci` 已忽略，无论上游带入哪个包的子选项都不再误判。这是 2026-09-26 run `36204661205` 定时编译失败的根因，修复见提交 `778513e`（`enabledLuci` 过滤含下划线的名字）。
