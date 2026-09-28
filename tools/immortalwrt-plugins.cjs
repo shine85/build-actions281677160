@@ -44,7 +44,12 @@ function selectPackages(text, packages) {
 }
 
 function enabledLuci(text) {
-  return [...text.matchAll(/^CONFIG_PACKAGE_(luci-(?:app|theme)-[^\s=]+)=(y|m)\r?$/gm)].map(match => match[1]);
+  // luci-app-ssr-plus_INCLUDE_Xray 之类带下划线的是包内 Kconfig 子选项，随父包 luci-app-ssr-plus
+  // 自动增删，无法作为独立包用 "is not set" 关闭（defconfig 会回填）。OpenWrt 独立包名只用
+  // 小写、数字和连字符，不含下划线，故这里只核验真正的独立包，忽略子选项。
+  return [...text.matchAll(/^CONFIG_PACKAGE_(luci-(?:app|theme)-[^\s=]+)=(y|m)\r?$/gm)]
+    .map(match => match[1])
+    .filter(name => !name.includes('_'));
 }
 
 function extraI18n(text, allowed) {

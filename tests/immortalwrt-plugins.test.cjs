@@ -174,3 +174,25 @@ test('合法 ACL 保持原样，未知损坏不能被当作已知上游问题自
   assert.throws(() => invoke(f, { run: () => ({ status: 0 }) }), /kucat.*ACL/);
   assert.equal(fs.readFileSync(f.acl, 'utf8'), malformed);
 });
+
+test('defconfig 带入的 ssr-plus 子选项不算独立插件，核验放行不报错', () => {
+  const f = fixture();
+  let makes = 0;
+  const run = (file) => {
+    if (file !== 'make') return { status: 0 };
+    makes++;
+    const configPath = path.join(f.home, '.config');
+    const config = fs.readFileSync(configPath, 'utf8');
+    // 父包未显式选中，只有随父包带入、defconfig 无法单独关闭的 Kconfig 子选项残留
+    fs.writeFileSync(configPath, config + lines([
+      'luci-app-ssr-plus_INCLUDE_Xray',
+      'luci-app-ssr-plus_Nftables_Transparent_Proxy',
+      'luci-app-frpc', 'luci-app-homeproxy',
+    ]));
+    return { status: 0 };
+  };
+  const result = invoke(f, { run });
+  assert.equal(makes, 1); // 子选项被忽略，无未请求的独立包需要第二轮清理
+  assert.ok(!result.some(name => name.includes('_')));
+  for (const name of [...kucat, 'luci-app-frpc', 'luci-app-homeproxy']) assert.ok(result.includes(name));
+});
